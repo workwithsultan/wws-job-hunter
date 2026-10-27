@@ -1,0 +1,11 @@
+node_modules/
+dist/
+/public/
+data/
+.env.local
+.env.local.*
+*.log
+.DS_Store
+release/
+
+context.md
