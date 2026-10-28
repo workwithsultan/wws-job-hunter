@@ -1206,7 +1206,6 @@ test("assessment context belongs only to the current user and treats search mark
     searchPreferences: {
       targetJobMarket: "Germany",
       workArrangement: "Hybrid",
-      titleKeywords: first.roles,
     },
     profile: first.profile,
   });
@@ -1214,11 +1213,19 @@ test("assessment context belongs only to the current user and treats search mark
     searchPreferences: {
       targetJobMarket: "Any country",
       workArrangement: "Remote",
-      titleKeywords: second.roles,
     },
     profile: second.profile,
   });
   assert.ok(!secondPrompt.includes(first.profile));
+  assert.doesNotMatch(firstPrompt, /titleKeywords|Automation Specialist|Title keywords/);
+  assert.equal(
+    buildAssessmentPrompt({
+      ...first,
+      roles: ["Different query"],
+      exclusions: ["Different exclusion"],
+    }),
+    firstPrompt,
+  );
   const instructions = firstPrompt.split(marker)[0]!;
   assert.ok(!instructions.includes("Germany"));
   assert.doesNotMatch(instructions, /Indonesia|Indonesian|Sultan|United States/);
@@ -1358,6 +1365,36 @@ test("an expired OpenRouter key stops a run before any SerpApi quota or discover
     assert.equal(paths.length, 1);
     assert.equal(item.store.runs()[0]?.found, 0);
     assert.equal(item.store.totals().jobs, 0);
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("upgrading the former built-in prompt removes query guidance without changing custom instructions", () => {
+  const item = installation();
+  try {
+    const previous = defaultAssessmentPrompt.replace(
+      "Distinguish required qualifications from preferred ones.",
+      "Distinguish required qualifications from preferred ones. Title keywords need not match an exact phrase.",
+    );
+    const db = new Database(join(item.directory, "workspace.sqlite"));
+    db.prepare("INSERT INTO preferences(id,value) VALUES(1,?)").run(
+      JSON.stringify({ ...defaultPreferences, assessmentPrompt: previous }),
+    );
+    db.close();
+    const upgraded = new Store(join(item.directory, "workspace.sqlite"));
+    assert.equal(upgraded.preferences().assessmentPrompt, defaultAssessmentPrompt);
+    upgraded.savePreferences({
+      ...upgraded.preferences(),
+      assessmentPrompt: previous + "\nPrioritize workflow experience.",
+    });
+    upgraded.close();
+    const custom = new Store(join(item.directory, "workspace.sqlite"));
+    assert.equal(
+      custom.preferences().assessmentPrompt,
+      previous + "\nPrioritize workflow experience.",
+    );
+    custom.close();
   } finally {
     item.cleanup();
   }

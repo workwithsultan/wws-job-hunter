@@ -7,7 +7,7 @@ const instructions = [
     "- match: reasonable fit without an explicit essential conflict; requires a numeric score.\n" +
     "- not_a_match: clear evidence of an essential mismatch.\n" +
     "- review: missing or ambiguous information prevents a fair decision, including unclear essential eligibility. State what needs confirmation.\n" +
-    "- Distinguish required qualifications from preferred ones. Title keywords need not match an exact phrase.\n" +
+    "- Distinguish required qualifications from preferred ones.\n" +
     "- Search country means target job market. Never infer nationality, residence, citizenship, work authorization, relocation intentions, timezone or protected traits. Residence alone proves neither work authorization elsewhere nor unwillingness to relocate. Remote does not prove worldwide eligibility or a country restriction.",
   'Return raw JSON: {"verdict":"match|not_a_match|review","score":0–100 or null,"reason":"brief factual reason"}. Keep reason within 12 words and 80 characters.',
 ];

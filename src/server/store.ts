@@ -16,6 +16,10 @@ type InsertJob = Pick<
   Job,
   "title" | "url" | "source" | "snippet" | "description" | "assessment" | "reason" | "status"
 >;
+const previousDefaultAssessmentPrompt = defaultPreferences.assessmentPrompt.replace(
+  "Distinguish required qualifications from preferred ones.",
+  "Distinguish required qualifications from preferred ones. Title keywords need not match an exact phrase.",
+);
 const opportunityWindowMs = 24 * 60 * 60 * 1000;
 const visibleAssessment = "assessment IN ('match','review')";
 const queueStatus = "status IN ('ready','review')";
@@ -96,6 +100,8 @@ export class Store {
     if (typeof saved !== "object" || saved === null || Array.isArray(saved))
       throw new Error("Saved preferences are invalid.");
     const value: Record<string, unknown> = { ...saved };
+    if (value.assessmentPrompt === previousDefaultAssessmentPrompt)
+      value.assessmentPrompt = defaultPreferences.assessmentPrompt;
     if ("limit" in value) delete value.limit;
     if ("threshold" in value) delete value.threshold;
     if ("sources" in value) delete value.sources;

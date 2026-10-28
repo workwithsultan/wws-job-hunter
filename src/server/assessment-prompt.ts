@@ -9,7 +9,6 @@ export function buildAssessmentPrompt(preferences: Preferences): string {
       searchPreferences: {
         targetJobMarket: countryName(preferences.country),
         workArrangement: workTypes[preferences.workType],
-        titleKeywords: preferences.roles,
       },
       profile: preferences.profile,
     })

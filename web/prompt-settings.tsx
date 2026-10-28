@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Check } from "lucide-react";
 import type { Workspace } from "../src/shared/model";
 import { defaultAssessmentPrompt, assessmentPromptSchema } from "../src/shared/assessment-prompt";
 import { api } from "./api";
 import { useActivity, useInteractionState } from "./interaction";
-import { Alert, Field, PendingLabel, useConfirm, useDraftWarning } from "./ui";
+import { Alert, PendingLabel, useDraftWarning } from "./ui";
 
 export function PromptSettings({
   workspace,
@@ -14,116 +13,128 @@ export function PromptSettings({
   reload: () => Promise<void>;
 }) {
   const current = workspace.preferences.assessmentPrompt;
+  const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(current);
   const [baseline, setBaseline] = useState(current);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
-  const [saved, setSaved] = useState(false);
-  const dirty = draft !== baseline;
+  const dirty = editing && draft !== baseline;
   const parsed = assessmentPromptSchema.safeParse(draft);
   const interaction = useInteractionState();
-  const confirm = useConfirm();
   useDraftWarning(dirty);
   useActivity(busy, "write");
   useEffect(() => {
-    if (!dirty || draft === current) {
+    if (!editing || !dirty || draft === current) {
       setDraft(current);
       setBaseline(current);
     }
-  }, [current, dirty, draft]);
+  }, [current, editing, dirty, draft]);
   const locked = workspace.running || busy || interaction.writing;
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (locked || !dirty || !parsed.success) return;
-    if (
-      !(await confirm({
-        title: "Save AI prompt?",
-        description:
-          "These instructions will be used for future job assessments. Existing results stay unchanged.",
-        action: "Save changes",
-        emoji: "💾",
-      }))
-    )
-      return;
+  const persist = async (value: string) => {
+    if (locked) return;
     setBusy(true);
     setFailure("");
     try {
-      await api("/api/preferences/prompt", "PATCH", { assessmentPrompt: parsed.data });
-      await reload();
-      setDraft(parsed.data);
-      setBaseline(parsed.data);
-      setSaved(true);
+      if (value !== current) {
+        await api("/api/preferences/prompt", "PATCH", { assessmentPrompt: value });
+        await reload();
+      }
+      setDraft(value);
+      setBaseline(value);
+      setEditing(false);
+      requestAnimationFrame(() => document.getElementById("edit-assessment-prompt")?.focus());
     } catch (error) {
       setFailure(error instanceof Error ? error.message : "The prompt could not be saved.");
     } finally {
       setBusy(false);
     }
   };
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (editing && dirty && parsed.success) void persist(parsed.data);
+  };
   return (
-    <form className="prompt-settings" onSubmit={(event) => void save(event)} noValidate>
-      <h2>AI prompt</h2>
-      <p className="prompt-description">
-        Edit the instructions used to assess job fit. Your resume, search preferences and each job
-        posting are added automatically.
-      </p>
+    <form className="prompt-settings" onSubmit={save} noValidate>
       {failure && <Alert>{failure}</Alert>}
-      <Field
-        id="assessment-prompt"
-        label="Assessment instructions"
-        error={
-          !parsed.success ? (parsed.error.issues[0]?.message ?? "Check your prompt.") : undefined
-        }
-      >
-        <textarea
-          id="assessment-prompt"
-          rows={18}
-          maxLength={8000}
-          disabled={locked}
-          value={draft}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setSaved(false);
-          }}
-        />
-      </Field>
-      <p className="prompt-description">
-        The response format stays fixed: verdict, score and reason. Save changes to apply edited or
-        default instructions.
-      </p>
+      {editing ? (
+        <>
+          <label htmlFor="assessment-prompt" className="sr-only">
+            AI prompt
+          </label>
+          <textarea
+            autoFocus
+            id="assessment-prompt"
+            rows={18}
+            maxLength={8000}
+            disabled={locked}
+            value={draft}
+            aria-invalid={!parsed.success}
+            aria-describedby={!parsed.success ? "prompt-error" : undefined}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          {!parsed.success && (
+            <p id="prompt-error" className="prompt-error" role="alert">
+              {parsed.error.issues[0]?.message}
+            </p>
+          )}
+        </>
+      ) : (
+        <pre className="prompt-content" aria-label="AI prompt">
+          {current}
+        </pre>
+      )}
       <div className="form-actions">
-        <button className="primary" disabled={locked || !dirty || !parsed.success} type="submit">
-          <PendingLabel pending={busy} busy="Saving…" idle="Save changes" />
-        </button>
-        <button
-          type="button"
-          disabled={locked || draft === defaultAssessmentPrompt}
-          onClick={() => {
-            setDraft(defaultAssessmentPrompt);
-            setSaved(false);
-          }}
-        >
-          Use default
-        </button>
-        {dirty && (
+        {editing ? (
+          <>
+            <button
+              className="primary"
+              disabled={locked || !dirty || !parsed.success}
+              type="submit"
+            >
+              <PendingLabel pending={busy} busy="Saving…" idle="Save" />
+            </button>
+            <button
+              type="button"
+              disabled={locked}
+              onClick={() => {
+                setDraft(current);
+                setBaseline(current);
+                setEditing(false);
+                setFailure("");
+                requestAnimationFrame(() =>
+                  document.getElementById("edit-assessment-prompt")?.focus(),
+                );
+              }}
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
           <button
             type="button"
+            id="edit-assessment-prompt"
+            className="primary"
             disabled={locked}
             onClick={() => {
               setDraft(current);
               setBaseline(current);
               setFailure("");
-              setSaved(false);
+              setEditing(true);
             }}
           >
-            Cancel
+            Edit
           </button>
         )}
-        {saved && (
-          <span className="saved" role="status">
-            <Check />
-            Saved
-          </span>
-        )}
+        <button
+          type="button"
+          disabled={
+            locked ||
+            (current === defaultAssessmentPrompt && (!editing || draft === defaultAssessmentPrompt))
+          }
+          onClick={() => void persist(defaultAssessmentPrompt)}
+        >
+          Reset to default
+        </button>
       </div>
     </form>
   );
