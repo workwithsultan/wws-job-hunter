@@ -248,15 +248,7 @@ textarea:disabled {
   opacity: 1;
   -webkit-text-fill-color: var(--muted);
 }
-input[type="checkbox"] {
-  width: 1.25rem;
-  height: 1.25rem;
-  min-height: 0;
-  flex-shrink: 0;
-  accent-color: var(--primary);
-  padding: 0;
-  margin: 0;
-}
+
 fieldset {
   border: 0;
   padding: 0;
@@ -668,11 +660,6 @@ tbody tr:last-child td {
   gap: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
-}
 .field {
   display: grid;
   gap: 0.5rem;
@@ -714,66 +701,6 @@ tbody tr:last-child td {
 .field[data-invalid="true"] > textarea,
 .field[data-invalid="true"] > .choice-trigger {
   border-color: var(--error);
-}
-.check-line {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 2.75rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-weight: 500;
-}
-.schedule-fields {
-  display: grid;
-  gap: 1.5rem;
-}
-.time-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-.day-options {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.5rem;
-}
-.day-choice {
-  position: relative;
-  display: block;
-  min-width: 2.5rem;
-  text-align: center;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-weight: 500;
-}
-.day-choice input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  cursor: pointer;
-}
-.day-choice span {
-  display: grid;
-  place-items: center;
-  min-height: var(--control-height);
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--control);
-  border-radius: 0.5rem;
-}
-.day-choice input:checked + span {
-  border-color: var(--primary);
-  background: var(--selected);
-  color: var(--selected-fg);
-}
-.day-choice input:focus-visible + span {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-.day-choice input:disabled {
-  cursor: default;
 }
 .form-actions {
   display: flex;
@@ -1110,12 +1037,6 @@ details summary {
   .collection-body {
     padding: 1rem;
   }
-  .form-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .day-options {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
   .drawer {
     padding: 1rem;
   }
@@ -1157,22 +1078,12 @@ details summary {
   textarea {
     font-size: 1rem;
   }
-  button,
-  .button,
-  .options button,
-  nav a,
-  .day-choice span {
-    min-height: 2.75rem;
-  }
   .icon-button {
     min-width: 2.75rem;
   }
   .error-trigger {
     min-width: 2.75rem;
     min-height: 2.75rem;
-  }
-  .day-choice {
-    min-width: 2.75rem;
   }
   .appearance .choice-trigger {
     font-size: 0.875rem;
@@ -1213,11 +1124,6 @@ details summary {
   }
 }
 @media (forced-colors: active) {
-  nav a[aria-current="page"],
-  .options button[aria-selected="true"],
-  .day-choice input:checked + span {
-    border: 2px solid Highlight;
-  }
   .options button[aria-selected="true"] {
     text-decoration: underline;
   }
@@ -1340,11 +1246,6 @@ details summary {
   line-height: 1.25rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-}
-.schedule-note {
-  color: var(--muted);
-  font-size: 0.75rem;
-  line-height: 1rem;
 }
 .settings-layout {
   display: grid;
@@ -1613,13 +1514,6 @@ h2 {
   }
 }
 
-.schedule-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
 .jobs-layout,
 .applications-layout {
   display: grid;
@@ -1844,10 +1738,6 @@ h2 {
   align-items: center;
   gap: 0.5rem;
 }
-.schedule-heading {
-  display: grid;
-  gap: 0.5rem;
-}
 .jobs-table td:first-child {
   min-width: 12rem;
   width: 100%;
@@ -2021,14 +1911,6 @@ h2 {
 .job-edit {
   flex: none;
 }
-.trigger-manual {
-  color: #1e3a5f;
-  background: #d8e8ff;
-}
-.trigger-schedule {
-  color: #4b3269;
-  background: #e9def5;
-}
 .resume-actions {
   display: flex;
   align-items: center;
@@ -2076,16 +1958,6 @@ h2 {
 .search-sources[open] > :not(summary) {
   margin-block-start: 1rem;
 }
-.search-schedule {
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  margin-block: 1.5rem;
-}
-.search-schedule .schedule-heading {
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
 @media (min-width: 1280px) {
   .search-form > fieldset {
     display: grid;
@@ -2095,7 +1967,7 @@ h2 {
   }
   .search-keywords {
     grid-column: 1;
-    grid-row: 1 / 3;
+    grid-row: 1;
     padding: 0;
     margin: 0;
     border: 0;
@@ -2111,17 +1983,14 @@ h2 {
     margin: 0;
     border: 0;
   }
-  .search-schedule {
-    grid-column: 1 / -1;
-    grid-row: 3;
-  }
   .search-sources {
     grid-column: 1 / -1;
-    grid-row: 4;
+    grid-row: 2;
+    margin-block-start: 1.5rem;
   }
   .search-form .form-actions {
     grid-column: 1 / -1;
-    grid-row: 5;
+    grid-row: 3;
     margin-block-start: 1.5rem;
   }
 }

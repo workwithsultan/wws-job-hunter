@@ -25,7 +25,6 @@ const store = new Store(dbPath);
 chmodSync(dbPath, 0o600);
 store.recoverInterrupted();
 const runner = new Runner(store, config);
-runner.reschedule();
 const app = buildApp(store, config, runner, root, port);
 await app.listen({ host, port });
 console.info(`Job Hunter is ready at http://${host === "::1" ? "[::1]" : host}:${port}`);

@@ -115,7 +115,6 @@ export function SearchLogs({
                 <tr>
                   <th scope="col">Started</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Trigger</th>
                   <th scope="col">Results</th>
                   <th scope="col">Message</th>
                 </tr>
@@ -137,11 +136,6 @@ export function SearchLogs({
                     <td>
                       <span className={"badge run-" + run.status}>
                         {runStatusLabels[run.status]}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={"badge trigger-" + run.trigger}>
-                        {run.trigger === "schedule" ? "Scheduled" : "Manual"}
                       </span>
                     </td>
                     <td className="log-results">

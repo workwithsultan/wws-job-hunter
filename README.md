@@ -20,8 +20,8 @@ API calls consume your own provider credits. An unconfigured installation makes 
 
 - **Jobs:** filter opportunities, read match reasons, open original postings, export CSV, and check SerpApi quota.
 - **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
-- **Search:** edit roles, exclusion keywords, country, work type and schedule.
-- **Search logs:** review search executions in a table with status, time, duration, manual or scheduled trigger, result counts, and full progress or error messages.
+- **Search:** edit roles, exclusion keywords, country and work type.
+- **Search logs:** review search executions in a table with status, time, duration, result counts, and full progress or error messages.
 - **Settings:** edit your profile and provider keys.
 
 Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Saving forms, changing models, adding keywords or keys, and deleting saved items require confirmation. Cancel and Escape preserve the current draft without saving it. Searches wait until pending edits and operations finish. Resume and search settings save separately so one form cannot overwrite the other. Provider Connect buttons require valid input; appearance changes apply immediately.
@@ -30,7 +30,7 @@ Country flags and contextual emoji use the device’s native emoji font, includi
 
 All pages share the same content width and responsive spacing. Settings keeps the resume file and its Preview/Replace controls together above the two provider sections. Search groups title keywords alongside country and work type on wide screens; fixed job sites are secondary expandable details. On smaller screens, job assessments move beneath titles and quota account details collapse while the remaining balance and next reset stay visible. Quota refresh preserves the known layout, marks loading, and clears balances when verification fails. Search-log durations use readable units; interrupted runs without a finish timestamp are explicitly identified. Dialogs preserve drafts on cancellation and return focus to the relevant control.
 
-Search logs are ordered newest first, with status filters and 25 rows per page. Running searches update automatically while the app is open. Starting a search opens its log view. Succeeded means the run completed; Failed reports a search error, and Interrupted identifies a run stopped by a server shutdown. Manual and Scheduled triggers have distinct colored labels. Filter and page selections stay in the URL. Refresh reloads history without starting a search. Setup or connection errors before a run starts remain visible where they occur and do not create phantom history records.
+Search logs are ordered newest first, with status filters and 25 rows per page. Running searches update automatically while the app is open. Starting a search opens its log view. Succeeded means the run completed; Failed reports a search error, and Interrupted identifies a run stopped by a server shutdown. Filter and page selections stay in the URL. Refresh reloads history without starting a search. Setup or connection errors before a run starts remain visible where they occur and do not create phantom history records.
 
 Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Railway, Telegram, and a separate database server are not required. Existing historical spreadsheets are not imported or modified.
 
@@ -42,7 +42,7 @@ Readable descriptions are assessed against your resume using OpenAI's Responses 
 
 JavaScript-only, blocked, inaccessible, or unsupported descriptions are marked **Needs review**, without an invented verdict. Provider discovery failures stop the run explicitly. Unprocessed jobs remain available for a later run when AI assessment fails. Application statuses and notes are not overwritten by a later assessment.
 
-Scheduled searches are off by default. Enable them only after setup. The server must remain running; missed schedules are not replayed. Stopping the server cancels active provider requests and keeps already-saved jobs. A restart marks a search left by an unexpected shutdown as interrupted. Editing search settings or credentials is blocked during an active run.
+Searches start only when you click Search jobs and confirm. There is no auto-run scheduler or Telegram integration. The app process must stay running until an active search finishes. Stopping the server cancels active provider requests and keeps already-saved jobs. A restart marks a search left by an unexpected shutdown as interrupted. Editing search settings or credentials is blocked during an active run.
 
 ## Resume PDF
 
@@ -64,7 +64,7 @@ The model dropdown uses the [OpenAI Models API](https://developers.openai.com/ap
 
 All environment settings live in the untracked `.env.local` file. `npm run setup` creates it without overwriting an existing file. API keys saved in Settings are written to this file with owner-only permissions and are never returned by the API. Other preferences and your profile live in the local database.
 
-The generated file uses port 8790, loopback host `127.0.0.1`, and `./data` as its data directory. Model and API keys start empty; the interface works before providers are configured. Saved keys are masked. Change or remove them explicitly; empty key submissions are rejected. Removing a provider key disables scheduled searches.
+The generated file uses port 8790, loopback host `127.0.0.1`, and `./data` as its data directory. Model and API keys start empty; the interface works before providers are configured. Saved keys are masked. Change or remove them explicitly; empty key submissions are rejected.
 
 This release serves only on a loopback address. Remote server installations can be reached through an SSH tunnel. Public internet binding, multi-user accounts, reverse-proxy authentication, and hosted service operation are outside this release.
 
@@ -77,7 +77,7 @@ This release serves only on a loopback address. Remote server installations can 
 
 Preserve both the database and its environment file. CSV export is for portability, not a full backup. The app does not delete old jobs automatically.
 
-Database schema 3 adds PDF storage and nullable percentage scores without inventing values for old records. Existing scores, application history and notes are preserved; older application records without a decision remain visible as review items. Records without a usable score display Needs review. The old minimum-threshold preference remains removed.
+Database schema 4 removes obsolete schedule settings while retaining PDF storage and nullable percentage scores without inventing values for old records. Existing scores, application history and notes are preserved; older application records without a decision remain visible as review items. Records without a usable score display Needs review. The old minimum-threshold preference remains removed.
 
 ## Development and verification
 
@@ -90,3 +90,5 @@ The application uses React, Radix UI primitives, Lucide icons, Fastify, and SQLi
 Job titles open the original posting directly in a new tab. Status can be changed from the table with confirmation; the explicit edit icon opens a centered notes/details dialog. Jobs and Applications use the same stages and spreadsheet palette: Need to apply (blue), Needs review (yellow), Applied (light green), Interviewed (teal), Offered (purple), Accepted (darker green), Rejected (red), and Withdrawn (gray). Stored internal status identifiers remain compatible with existing databases.
 
 Jobs contains only Need to apply and Needs review. Changing a job to Applied or another application stage moves it exclusively to Applications; moving it back to either preparation stage returns it to Jobs. Each page’s status filters and counters follow that partition, and existing notes and scores are preserved.
+
+Upgrades remove saved schedule settings even if auto-run was previously enabled. Existing jobs, PDF files and search history remain intact. Historical run origins are preserved in stored records, but the redundant Trigger column is no longer shown. Log timestamps and quota planning use the device timezone.

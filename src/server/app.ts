@@ -96,7 +96,6 @@ export function buildApp(
     preferences: store.preferences(),
     connections: config.connectionStatus(),
     running: runner.running,
-    nextRun: runner.nextRun(),
     totals: store.totals(),
   }));
   app.get("/api/jobs", async (request) => {
@@ -136,13 +135,7 @@ export function buildApp(
       return reply.code(409).send({
         error: "Wait for the current search or connection update before saving preferences.",
       });
-    if (preferences.scheduleEnabled && runner.missing(preferences).length)
-      return reply.code(400).send({
-        error:
-          "Complete your profile, target roles, and provider settings before enabling a schedule.",
-      });
     store.savePreferences(preferences);
-    runner.reschedule();
     return { ok: true };
   };
   app.get("/api/resume", async (_request, reply) => {
@@ -178,7 +171,6 @@ export function buildApp(
         }),
         pdf,
       );
-      runner.reschedule();
       return { ok: true };
     },
   );
@@ -195,11 +187,6 @@ export function buildApp(
       reply,
     ),
   );
-  const connectionChanged = () => {
-    if (runner.missing().length)
-      store.savePreferences({ ...store.preferences(), scheduleEnabled: false });
-    runner.reschedule();
-  };
   const withConnections = async <T>(reply: FastifyReply, action: () => Promise<T>) => {
     if (runner.running || runner.updatingConnections)
       return reply
@@ -238,7 +225,7 @@ export function buildApp(
           OPENAI_API_KEY: key,
           OPENAI_MODEL: models.includes(current) ? current : "",
         });
-        connectionChanged();
+
         return { ok: true };
       } catch (error) {
         return reply.code(400).send({
@@ -260,7 +247,7 @@ export function buildApp(
         if (!models.includes(model))
           return reply.code(400).send({ error: "Choose a model available to this key." });
         config.update({ OPENAI_MODEL: model });
-        connectionChanged();
+
         return { ok: true };
       } catch (error) {
         return reply
@@ -272,7 +259,7 @@ export function buildApp(
   app.delete("/api/openai/key", async (_request, reply) =>
     withConnections(reply, async () => {
       config.update({ OPENAI_API_KEY: "", OPENAI_MODEL: "" });
-      connectionChanged();
+
       return { ok: true };
     }),
   );
@@ -296,7 +283,7 @@ export function buildApp(
             error: "This account is already connected. Another key would share its quota.",
           });
         config.update({ SERPAPI_API_KEYS: [...keys, key].join(",") });
-        connectionChanged();
+
         return { ok: true };
       } catch (error) {
         return reply.code(400).send({
@@ -313,7 +300,7 @@ export function buildApp(
       if (remaining.length === keys.length)
         return reply.code(404).send({ error: "This key is no longer saved." });
       config.update({ SERPAPI_API_KEYS: remaining.join(",") });
-      connectionChanged();
+
       return { ok: true };
     }),
   );
@@ -351,14 +338,17 @@ export function buildApp(
       ),
     };
   });
-  app.post("/api/runs", async (_request, reply) => {
+  app.post("/api/runs", async (request, reply) => {
+    z.object({})
+      .strict()
+      .parse(request.body ?? {});
     if (runner.running || runner.updatingConnections)
       return reply
         .code(409)
         .send({ error: "Wait for the current search or connection update to finish." });
     const missing = runner.missing();
     if (missing.length) return reply.code(400).send({ error: missing.join(". ") + "." });
-    return reply.code(202).send({ id: runner.start("manual") });
+    return reply.code(202).send({ id: runner.start() });
   });
   app.get("/api/export", async (_request, reply) => {
     const cell = (value: string | number | null) => {

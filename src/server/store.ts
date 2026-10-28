@@ -23,7 +23,7 @@ export class Store {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.db.pragma("busy_timeout = 5000");
-    if (Number(this.db.pragma("user_version", { simple: true })) > 3)
+    if (Number(this.db.pragma("user_version", { simple: true })) > 4)
       throw new Error("This database requires a newer version of Job Hunter.");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS resume_document (id INTEGER PRIMARY KEY CHECK(id=1), pdf BLOB NOT NULL);
@@ -57,7 +57,12 @@ export class Store {
       const runs = this.db.prepare("PRAGMA table_info(runs)").all() as { name: string }[];
       if (runs.some((column) => column.name === "ready"))
         this.db.exec("ALTER TABLE runs RENAME COLUMN ready TO matches");
-      this.db.pragma("user_version = 3");
+      const preferences = this.db.prepare("SELECT value FROM preferences WHERE id=1").get();
+      if (preferences)
+        this.db
+          .prepare("UPDATE preferences SET value=? WHERE id=1")
+          .run(JSON.stringify(this.preferences()));
+      this.db.pragma("user_version = 4");
     })();
   }
   recoverInterrupted(): void {
@@ -74,10 +79,12 @@ export class Store {
     const saved: unknown = JSON.parse(row.value);
     if (typeof saved !== "object" || saved === null || Array.isArray(saved))
       throw new Error("Saved preferences are invalid.");
-    const value = { ...saved };
+    const value: Record<string, unknown> = { ...saved };
     if ("limit" in value) delete value.limit;
     if ("threshold" in value) delete value.threshold;
     if ("sources" in value) delete value.sources;
+    for (const key of ["scheduleEnabled", "scheduleTime", "scheduleDays", "timezone"])
+      delete value[key];
     return preferencesSchema.parse({
       resume: null,
       country: defaultPreferences.country,
@@ -251,13 +258,13 @@ export class Store {
       .all(...values, (page - 1) * 25) as SearchRun[];
     return { runs, total, page, pages };
   }
-  startRun(trigger: SearchRun["trigger"]): number {
+  startRun(): number {
     return Number(
       this.db
         .prepare(
-          "INSERT INTO runs(startedAt,status,trigger,message) VALUES(?,'running',?,'Discovering jobs…')",
+          "INSERT INTO runs(startedAt,status,trigger,message) VALUES(?,'running','manual','Discovering jobs…')",
         )
-        .run(new Date().toISOString(), trigger).lastInsertRowid,
+        .run(new Date().toISOString()).lastInsertRowid,
     );
   }
   progress(

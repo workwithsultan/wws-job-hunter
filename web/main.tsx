@@ -374,7 +374,7 @@ function App() {
                   <SearchLogs
                     active={location.pathname === "/logs"}
                     version={version}
-                    timezone={workspace.preferences.timezone}
+                    timezone={Intl.DateTimeFormat().resolvedOptions().timeZone}
                   />
                 </section>
                 <section hidden={location.pathname !== "/settings"} className="page-content">
@@ -1113,17 +1113,7 @@ function SearchPage({
   const [pending, setPending] = useState({ roles: false, exclusions: false });
   const hasPending = pending.roles || pending.exclusions;
   const dirty = searchChanged(draft, baseline) || hasPending;
-  const canSchedule = !Object.values(
-    missingSetup({
-      ...workspace,
-      preferences: {
-        ...draft,
-        profile: workspace.preferences.profile,
-        resume: workspace.preferences.resume,
-      },
-    }),
-  ).some(Boolean);
-  const valid = searchValid(draft, hasPending) && (!draft.scheduleEnabled || canSchedule);
+  const valid = searchValid(draft, hasPending);
   const confirm = useConfirm();
   const interaction = useInteractionState();
   const [chipVersion, setChipVersion] = useState(0);
@@ -1207,15 +1197,6 @@ function SearchPage({
             label: "Job sites",
             value: Object.values(sources).join(", "),
           },
-          {
-            label: "Schedule",
-            value: candidate.scheduleEnabled
-              ? `${[...candidate.scheduleDays]
-                  .sort()
-                  .map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day])
-                  .join(", ")} · ${candidate.scheduleTime} · ${candidate.timezone}`
-              : "Off",
-          },
         ],
       }))
     )
@@ -1241,17 +1222,6 @@ function SearchPage({
       setBusy(false);
     }
   };
-  const hours = Array.from({ length: 24 }, (_, value) => ({
-    value: String(value).padStart(2, "0"),
-    label: String(value).padStart(2, "0"),
-  }));
-  const minutes = Array.from({ length: 60 }, (_, value) => ({
-    value: String(value).padStart(2, "0"),
-    label: String(value).padStart(2, "0"),
-  }));
-  const zones = [...new Set(["UTC", draft.timezone, ...Intl.supportedValuesOf("timeZone")])]
-    .sort()
-    .map((value) => ({ value, label: value.replaceAll("_", " ") }));
   return (
     <>
       {failure && <Alert>{failure}</Alert>}
@@ -1347,95 +1317,6 @@ function SearchPage({
               </div>
             )}
           </details>
-          <section className="search-section search-schedule">
-            <div className="schedule-heading">
-              <h2>
-                <Emoji>🗓️</Emoji>Schedule
-              </h2>
-              <div className="schedule-toggle">
-                <label className="check-line">
-                  <input
-                    type="checkbox"
-                    checked={draft.scheduleEnabled}
-                    disabled={!draft.scheduleEnabled && !canSchedule}
-                    onChange={(event) => change("scheduleEnabled", event.target.checked)}
-                  />
-                  <span>Run automatically (optional)</span>
-                </label>
-                {!canSchedule && !draft.scheduleEnabled && (
-                  <ActionHint label="Why automatic search is unavailable">
-                    Save your resume, connect both providers, choose a model, and add a job title
-                    first.
-                  </ActionHint>
-                )}
-              </div>
-            </div>
-            {draft.scheduleEnabled && (
-              <div className="schedule-fields">
-                <div className="form-grid">
-                  <div className="time-pair">
-                    <Field id="search-hour" label="Hour (required)">
-                      <Choice
-                        value={draft.scheduleTime.split(":")[0] ?? "09"}
-                        onChange={(value) =>
-                          change("scheduleTime", value + ":" + draft.scheduleTime.split(":")[1])
-                        }
-                        label="Hour, 24-hour clock"
-                        options={hours}
-                      />
-                    </Field>
-                    <Field id="search-minute" label="Minute (required)">
-                      <Choice
-                        value={draft.scheduleTime.split(":")[1] ?? "00"}
-                        onChange={(value) =>
-                          change("scheduleTime", draft.scheduleTime.split(":")[0] + ":" + value)
-                        }
-                        label="Minute"
-                        options={minutes}
-                      />
-                    </Field>
-                  </div>
-                  <Field id="search-timezone" label="Timezone (required)" error={errors.timezone}>
-                    <Choice
-                      value={draft.timezone}
-                      onChange={(value) => change("timezone", value)}
-                      label="Timezone"
-                      options={zones}
-                    />
-                  </Field>
-                </div>
-                <div className="field">
-                  <label id="days-label">Days (required)</label>
-                  <div className="day-options" role="group" aria-labelledby="days-label">
-                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, value) => (
-                      <label key={value} className="day-choice">
-                        <input
-                          type="checkbox"
-                          checked={draft.scheduleDays.includes(value)}
-                          disabled={
-                            draft.scheduleDays.length === 1 && draft.scheduleDays.includes(value)
-                          }
-                          onChange={(event) =>
-                            change(
-                              "scheduleDays",
-                              event.target.checked
-                                ? [...draft.scheduleDays, value]
-                                : draft.scheduleDays.filter((day) => day !== value),
-                            )
-                          }
-                        />
-                        <span>{label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <p className="schedule-note">
-                  Runs while the app is open.
-                  {workspace.nextRun ? ` Next: ${dateText(workspace.nextRun)}.` : ""}
-                </p>
-              </div>
-            )}
-          </section>
           <div className="form-actions">
             <button className="primary" disabled={busy || !dirty || !valid}>
               <PendingLabel pending={busy} idle="Save changes" busy="Saving…" />

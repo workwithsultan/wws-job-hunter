@@ -206,7 +206,7 @@ export function ProviderSettings({
       interaction.writing ||
       !(await confirm({
         title: "Remove API key?",
-        description: `Remove the ${provider === "openai" ? "OpenAI" : "SerpApi"} key ending ${key?.lastFour ?? workspace.connections.openaiLastFour}? ${provider === "openai" || workspace.connections.serpapiKeys.length === 1 ? "Scheduled searches will be disabled." : "The search budget will be recalculated."}`,
+        description: `Remove the ${provider === "openai" ? "OpenAI" : "SerpApi"} key ending ${key?.lastFour ?? workspace.connections.openaiLastFour}? ${provider === "openai" || workspace.connections.serpapiKeys.length === 1 ? "Connect this provider again before running another search." : "The search budget will be recalculated."}`,
         action: "Remove key",
         destructive: true,
       }))

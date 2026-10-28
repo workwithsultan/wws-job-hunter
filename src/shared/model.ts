@@ -65,17 +65,6 @@ export const preferencesSchema = z
     resume: resumeMetadataSchema.nullable(),
     roles: terms,
     exclusions: terms,
-    scheduleEnabled: z.boolean(),
-    scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-    timezone: z.string().refine((value) => {
-      try {
-        new Intl.DateTimeFormat("en", { timeZone: value });
-        return true;
-      } catch {
-        return false;
-      }
-    }, "Choose a valid timezone."),
-    scheduleDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
   })
   .strict()
   .refine((value) => !value.resume || value.profile.trim().length >= 10, {
@@ -101,10 +90,6 @@ export const defaultPreferences: Preferences = {
   resume: null,
   roles: [],
   exclusions: [],
-  scheduleEnabled: false,
-  scheduleTime: "09:00",
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-  scheduleDays: [1, 2, 3, 4, 5],
 };
 export interface Job {
   id: number;
@@ -131,6 +116,7 @@ export interface SearchRun {
   matches: number;
   review: number;
   message: string;
+  // Retain the origin of historical runs; new runs are always manual.
   trigger: "manual" | "schedule";
 }
 export const runStatusLabels = {
@@ -176,7 +162,6 @@ export interface Workspace {
   preferences: Preferences;
   connections: Connections;
   running: boolean;
-  nextRun: string | null;
   totals: {
     jobs: number;
     matches: number;

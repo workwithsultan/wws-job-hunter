@@ -4,10 +4,9 @@ import { Providers } from "./providers.js";
 import { searchBudget } from "../shared/budget.js";
 import { zodTextFormat } from "openai/helpers/zod";
 import { assessmentSchema, assessmentStatus } from "../shared/assessment.js";
-import { Cron } from "croner";
 import { discoverJobs } from "../discovery/serpapi.js";
 import { normalizeJobUrl } from "../discovery/url.js";
-import { sourceDomains, type Preferences, type SearchRun } from "../shared/model.js";
+import { sourceDomains, type Preferences } from "../shared/model.js";
 import { Configuration } from "./config.js";
 import { Store } from "./store.js";
 import { extractDescription, isJobUrl } from "./extract.js";
@@ -16,7 +15,6 @@ export class Runner {
   running = false;
   updatingConnections = false;
   readonly providers: Providers;
-  private schedule: Cron | undefined;
   private task: Promise<void> | undefined;
   private cancellation: AbortController | undefined;
   constructor(
@@ -24,9 +22,6 @@ export class Runner {
     private readonly config: Configuration,
   ) {
     this.providers = new Providers(config);
-  }
-  nextRun(): string | null {
-    return this.schedule?.nextRun()?.toISOString() ?? null;
   }
   missing(preferences = this.store.preferences()): string[] {
     const connections = this.config.connectionStatus();
@@ -38,38 +33,7 @@ export class Runner {
       ...(!connections.model ? ["Choose an OpenAI model"] : []),
     ];
   }
-  reschedule(): void {
-    this.schedule?.stop();
-    this.schedule = undefined;
-    const preferences = this.store.preferences();
-    if (!preferences.scheduleEnabled) return;
-    this.schedule = new Cron(
-      `${preferences.scheduleTime.split(":")[1]} ${preferences.scheduleTime.split(":")[0]} * * ${preferences.scheduleDays.join(",")}`,
-      { timezone: preferences.timezone },
-      () => {
-        if (this.running) {
-          const id = this.store.startRun("schedule");
-          this.store.finishRun(
-            id,
-            "failed",
-            "The scheduled search did not start because another search is still running.",
-          );
-          return;
-        }
-        try {
-          this.start("schedule");
-        } catch {
-          const id = this.store.startRun("schedule");
-          this.store.finishRun(
-            id,
-            "failed",
-            "Scheduled search could not start. Check your profile, target roles, and provider settings.",
-          );
-        }
-      },
-    );
-  }
-  start(trigger: SearchRun["trigger"]): number {
+  start(): number {
     if (this.updatingConnections)
       throw new Error("Wait for the provider connection update to finish.");
     if (this.running) throw new Error("A search is already running. Wait for it to finish.");
@@ -77,7 +41,7 @@ export class Runner {
     if (missing.length) throw new Error(missing.join(". ") + ".");
     const preferences = this.store.preferences();
     const credentials = this.config.values();
-    const id = this.store.startRun(trigger);
+    const id = this.store.startRun();
     this.running = true;
     const cancellation = new AbortController();
     this.cancellation = cancellation;
@@ -89,7 +53,6 @@ export class Runner {
     return id;
   }
   async stop(): Promise<void> {
-    this.schedule?.stop();
     this.cancellation?.abort();
     await this.task;
   }

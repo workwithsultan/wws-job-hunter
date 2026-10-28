@@ -62,7 +62,11 @@ export function searchBudget(
     };
   const remaining = quota.accounts.reduce((sum, account) => sum + account.remaining, 0);
   const monthlyLimit = quota.accounts.reduce((sum, account) => sum + account.monthlyLimit, 0);
-  const dailyTarget = dailySearchTarget(quota.accounts, preferences.timezone, now);
+  const dailyTarget = dailySearchTarget(
+    quota.accounts,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+    now,
+  );
   const target = dailyTarget ?? remaining;
   let limit = 10;
   if (preferences.roles.length) {

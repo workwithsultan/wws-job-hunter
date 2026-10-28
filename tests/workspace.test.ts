@@ -74,7 +74,6 @@ test("a new installation starts without jobs, runs, profile data, or provider ke
     assert.deepEqual(item.store.preferences().roles, []);
     assert.equal(item.config.connectionStatus().openai, false);
     assert.equal(item.config.connectionStatus().serpapi, false);
-    assert.equal(item.runner.nextRun(), null);
   } finally {
     item.cleanup();
   }
@@ -101,7 +100,7 @@ test("settings persist without generating application records", () => {
 test("an unconfigured search cannot create a phantom run or spend provider credits", () => {
   const item = installation();
   try {
-    assert.throws(() => item.runner.start("manual"), /Complete your profile/);
+    assert.throws(() => item.runner.start(), /Complete your profile/);
     assert.equal(item.runner.running, false);
     assert.equal(item.store.runs().length, 0);
   } finally {
@@ -120,7 +119,7 @@ test("only supported HTTPS job sites can be extracted", () => {
     assert.equal(isJobUrl(value), false);
   assert.equal(isJobUrl("https://jobs.lever.co/"), true);
 });
-test("invalid schedules and operator-bearing queries are rejected", () => {
+test("removed schedule settings and operator-bearing queries are rejected", () => {
   assert.equal(
     preferencesSchema.safeParse({ ...defaultPreferences, scheduleTime: "25:00" }).success,
     false,
@@ -198,7 +197,7 @@ test("API origin, host, validation and empty-state boundaries", async () => {
       ).statusCode,
       400,
     );
-    assert.equal(item.store.preferences().scheduleEnabled, false);
+    assert.equal("scheduleEnabled" in item.store.preferences(), false);
     assert.equal(
       (
         await app.inject({
@@ -365,7 +364,10 @@ test("save readiness follows actual changes and rejects incomplete form input", 
   assert.equal(searchChanged({ ...original, country: "id" }, original), true);
   assert.equal(searchChanged({ ...original, workType: "any" }, original), true);
   assert.equal(
-    searchChanged({ ...original, scheduleDays: [...original.scheduleDays].reverse() }, original),
+    searchChanged(
+      { ...original, roles: ["Operations", "Success"] },
+      { ...original, roles: ["Success", "Operations"] },
+    ),
     false,
   );
   assert.equal(searchValid(original, false), false);
@@ -529,7 +531,7 @@ test("schema upgrade retains existing numeric scores and keeps assessment and ap
         columns.some((c) => c.name === "assessment"),
         true,
       );
-      assert.equal(check.pragma("user_version", { simple: true }), 3);
+      assert.equal(check.pragma("user_version", { simple: true }), 4);
     } finally {
       check.close();
     }
@@ -850,6 +852,92 @@ test("Jobs and Applications partition records by workflow status and preserve da
     assert.equal(item.store.list({ ...query, applications: false, status: "applied" }).total, 0);
     assert.equal(item.store.list({ ...query, applications: true, status: "ready" }).total, 0);
   } finally {
+    item.cleanup();
+  }
+});
+
+test("manual-only upgrade removes enabled schedules without losing PDF, jobs or history", async () => {
+  const item = installation();
+  let upgraded: Store | undefined;
+  try {
+    const pdf = Buffer.from("%PDF-1.7\nExisting local resume.\n%%EOF");
+    const preferences = {
+      ...defaultPreferences,
+      profile: "Operations and customer success experience.",
+      resume: { name: "Resume.pdf", pages: 1 },
+      roles: ["Operations"],
+    };
+    item.store.replaceResume(preferences, pdf);
+    item.store.insert({
+      title: "Operations Manager",
+      url: "https://jobs.lever.co/example/retained",
+      source: "jobs.lever.co",
+      snippet: "Operations",
+      description: "Description",
+      assessment: "review",
+      reason: "Review details",
+      status: "review",
+    });
+    const oldRun = item.store.startRun();
+    item.store.finishRun(oldRun, "completed", "Retained history.");
+    const db = new Database(join(item.directory, "workspace.sqlite"));
+    db.prepare("UPDATE preferences SET value=?").run(
+      JSON.stringify({
+        ...preferences,
+        scheduleEnabled: true,
+        scheduleTime: "09:00",
+        scheduleDays: [1, 2, 3, 4, 5],
+        timezone: "Asia/Jakarta",
+      }),
+    );
+    db.prepare("UPDATE runs SET trigger='schedule' WHERE id=?").run(oldRun);
+    db.pragma("user_version = 3");
+    db.close();
+    upgraded = new Store(join(item.directory, "workspace.sqlite"));
+    assert.deepEqual(upgraded.preferences(), preferences);
+    assert.deepEqual(upgraded.resumeDocument(), pdf);
+    assert.equal(upgraded.job(1)?.title, "Operations Manager");
+    assert.equal(upgraded.runs().length, 1);
+    assert.equal(upgraded.runs()[0]?.trigger, "schedule");
+    const runner = new Runner(upgraded, item.config);
+    const app = buildApp(upgraded, item.config, runner, item.directory, 8790);
+    try {
+      const headers = {
+        host: "127.0.0.1:8790",
+        origin: "http://127.0.0.1:8790",
+        "content-type": "application/json",
+      };
+      const workspace = await app.inject({ url: "/api/workspace", headers });
+      assert.equal("nextRun" in workspace.json(), false);
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/runs",
+        headers,
+        payload: { trigger: "schedule" },
+      });
+      assert.equal(response.statusCode, 400);
+      const rejected = await app.inject({
+        method: "PATCH",
+        url: "/api/preferences/search",
+        headers,
+        payload: { scheduleEnabled: true },
+      });
+      assert.equal(rejected.statusCode, 400);
+      assert.equal(upgraded.runs().length, 1);
+      const manualRun = upgraded.startRun();
+      assert.equal(upgraded.runs().find((run) => run.id === manualRun)?.trigger, "manual");
+      upgraded.finishRun(manualRun, "completed", "Manual history.");
+    } finally {
+      await app.close();
+    }
+    const check = new Database(join(item.directory, "workspace.sqlite"));
+    const saved = check.prepare("SELECT value FROM preferences WHERE id=1").get() as {
+      value: string;
+    };
+    assert.doesNotMatch(saved.value, /scheduleEnabled|scheduleTime|scheduleDays|timezone/);
+    check.close();
+  } finally {
+    upgraded?.close();
     item.cleanup();
   }
 });

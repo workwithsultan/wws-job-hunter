@@ -6,10 +6,6 @@ function searchValues(value: Preferences): string {
     workType: value.workType,
     roles: [...value.roles].sort(),
     exclusions: [...value.exclusions].sort(),
-    scheduleEnabled: value.scheduleEnabled,
-    scheduleTime: value.scheduleTime,
-    scheduleDays: [...value.scheduleDays].sort(),
-    timezone: value.timezone,
   });
 }
 export function searchChanged(draft: Preferences, saved: Preferences): boolean {
