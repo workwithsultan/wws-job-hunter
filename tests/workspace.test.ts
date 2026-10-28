@@ -1,3 +1,4 @@
+import { normalizeJobUrl } from "../src/discovery/url.js";
 import { runDuration } from "../web/log-format.js";
 import { countryEmoji } from "../src/shared/emoji.js";
 import {
@@ -26,7 +27,7 @@ import { isAssessmentModel } from "../src/server/openrouter.js";
 import { Runner } from "../src/server/runner.js";
 import { buildApp } from "../src/server/app.js";
 import { sourceDomains, defaultPreferences, preferencesSchema } from "../src/shared/model.js";
-import { discoverJobs } from "../src/discovery/serpapi.js";
+import { discoverJobs, buildQuery, resultMatchesDomain } from "../src/discovery/serpapi.js";
 import { isJobUrl, extractDescription } from "../src/server/extract.js";
 import { searchLocation } from "../src/shared/search-scope.js";
 import { searchChanged, searchValid, profileValid, keywordEntry } from "../web/form-state.js";
@@ -954,4 +955,35 @@ test("manual-only upgrade removes enabled schedules without losing PDF, jobs or 
     upgraded?.close();
     item.cleanup();
   }
+});
+
+test("Greenhouse discovery, URL identity and extraction accept both official hosts without broadening trust", () => {
+  const legacy = "https://boards.greenhouse.io/example/jobs/12345";
+  const modern = "https://job-boards.greenhouse.io/example/jobs/12345";
+  assert.equal(isJobUrl(legacy), true);
+  assert.equal(isJobUrl(modern), true);
+  assert.equal(resultMatchesDomain(modern, "boards.greenhouse.io"), true);
+  assert.equal(normalizeJobUrl(modern + "?utm_source=test"), legacy);
+  for (const value of [
+    "https://job-boards.greenhouse.io.evil.invalid/example/jobs/12345",
+    "http://job-boards.greenhouse.io/example/jobs/12345",
+    "https://user:secret@job-boards.greenhouse.io/example/jobs/12345",
+    "https://job-boards.greenhouse.io:8443/example/jobs/12345",
+  ])
+    assert.equal(isJobUrl(value), false);
+  assert.equal(
+    resultMatchesDomain(
+      "https://job-boards.greenhouse.io.evil.invalid/example/jobs/12345",
+      "boards.greenhouse.io",
+    ),
+    false,
+  );
+  assert.match(
+    buildQuery("boards.greenhouse.io", '"Automation Specialist"'),
+    /site:boards\.greenhouse\.io OR site:job-boards\.greenhouse\.io/,
+  );
+  assert.match(
+    buildSearchQueryPreview(["Automation Specialist"], 10, sourceDomains),
+    /job-boards\.greenhouse\.io/,
+  );
 });

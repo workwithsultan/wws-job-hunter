@@ -61,6 +61,8 @@ export function normalizeJobUrl(input: string): string {
     const url = new URL(input.trim());
     url.hash = "";
     url.hostname = url.hostname.toLowerCase();
+    // Keep the historical host as the stable identity for existing saved Greenhouse jobs.
+    if (url.hostname === "job-boards.greenhouse.io") url.hostname = "boards.greenhouse.io";
     canonicalizeAtsPath(url);
 
     const keptEntries = [...url.searchParams.entries()]

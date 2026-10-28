@@ -93,8 +93,10 @@ export function buildSearchQueryPreview(
     ? [`Standard query:\n${standard}`]
     : [];
   sections.push(
-    `Independent first-page searches for ${firstPageDomains.join(", ")}. Each search is restricted to its domain.`,
+    `Independent first-page searches for ${firstPageDomains.join(", ")}. Each search is restricted to its supported job-site domains.`,
   );
+  if (firstPageDomains.includes("boards.greenhouse.io"))
+    sections.push("Greenhouse includes boards.greenhouse.io and job-boards.greenhouse.io.");
   sections.push(
     ...queries.map((query, index) => `Query ${index + 1}/${queries.length}:\n${query}`),
   );

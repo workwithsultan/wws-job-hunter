@@ -9,7 +9,7 @@ export function isJobUrl(value: string): boolean {
       !url.username &&
       !url.password &&
       (!url.port || url.port === "443") &&
-      Object.keys(sources).some(
+      ["job-boards.greenhouse.io", ...Object.keys(sources)].some(
         (host) =>
           url.hostname === host ||
           (host === "myworkdayjobs.com" && url.hostname.endsWith(".myworkdayjobs.com")),
@@ -67,7 +67,7 @@ export async function extractDescription(link: string, signal?: AbortSignal): Pr
   signal?.throwIfAborted();
   if (!isJobUrl(link)) throw new Error("The job URL is not supported.");
   const url = new URL(link);
-  if (url.hostname === "boards.greenhouse.io") {
+  if (url.hostname === "boards.greenhouse.io" || url.hostname === "job-boards.greenhouse.io") {
     const match = url.pathname.match(/^\/([^/]+)\/jobs\/(\d+)/);
     if (match) {
       const json: unknown = JSON.parse(

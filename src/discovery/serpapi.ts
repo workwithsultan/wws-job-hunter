@@ -1,3 +1,4 @@
+import { normalizeJobUrl } from "./url.js";
 import { searchLocation, defaultSearchScope, type SearchScope } from "../shared/search-scope.js";
 import { setTimeout as delay } from "node:timers/promises";
 import type { JobCandidate } from "./types.js";
@@ -33,7 +34,7 @@ interface DomainQueryProfile {
 
 const DOMAIN_QUERY_PROFILES: Record<string, DomainQueryProfile> = {
   "boards.greenhouse.io": {
-    siteSearch: "boards.greenhouse.io",
+    site: "(site:boards.greenhouse.io OR site:job-boards.greenhouse.io)",
   },
   "jobs.lever.co": {
     siteSearch: "jobs.lever.co",
@@ -104,7 +105,7 @@ class SerpApiKeyPool {
   }
 }
 
-function buildQuery(domain: string, queryBody: string): string {
+export function buildQuery(domain: string, queryBody: string): string {
   const profile = DOMAIN_QUERY_PROFILES[domain] || {
     site: `site:${domain}`,
   };
@@ -116,9 +117,9 @@ function buildQuery(domain: string, queryBody: string): string {
     .trim();
 }
 
-function resultMatchesDomain(link: string, domain: string): boolean {
+export function resultMatchesDomain(link: string, domain: string): boolean {
   try {
-    const url = new URL(link);
+    const url = new URL(normalizeJobUrl(link));
     if (url.protocol !== "https:" && url.protocol !== "http:") return false;
     const hostname = url.hostname.toLowerCase();
     const normalizedDomain = domain.toLowerCase();
