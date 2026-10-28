@@ -267,11 +267,7 @@ function App() {
               </span>
             )}
           </header>
-          <main
-            id="main"
-            tabIndex={-1}
-            data-focused={location.pathname === "/search" || location.pathname === "/settings"}
-          >
+          <main id="main" tabIndex={-1}>
             <div className="page-heading">
               <div>
                 <h1>
