@@ -804,3 +804,52 @@ test("resume replacement atomically persists PDF and matching text and rejects i
     item.cleanup();
   }
 });
+
+test("Jobs and Applications partition records by workflow status and preserve data on transfers", () => {
+  const item = installation();
+  try {
+    item.store.insert({
+      title: "Operations Manager",
+      url: "https://jobs.lever.co/example/workflow",
+      source: "jobs.lever.co",
+      snippet: "Operations",
+      description: "Operations role",
+      assessment: null,
+      reason: "",
+      status: "new",
+    });
+    item.store.assess(1, {
+      description: "Operations role",
+      assessment: "match",
+      score: 93,
+      reason: "Relevant experience",
+      status: "ready",
+    });
+    const query = { q: "", status: "", page: 1 };
+    for (const status of [
+      "ready",
+      "review",
+      "applied",
+      "interviewing",
+      "offer",
+      "accepted",
+      "rejected",
+      "withdrawn",
+      "ready",
+    ] as const) {
+      item.store.update(1, status, "Retain this note.");
+      const inJobs = status === "ready" || status === "review";
+      assert.equal(item.store.list({ ...query, applications: false }).total, inJobs ? 1 : 0);
+      assert.equal(item.store.list({ ...query, applications: true }).total, inJobs ? 0 : 1);
+      assert.equal(item.store.totals().jobs, inJobs ? 1 : 0);
+      assert.equal(item.store.totals().applications, inJobs ? 0 : 1);
+      assert.equal(item.store.totals().matches, inJobs ? 1 : 0);
+      assert.equal(item.store.job(1)?.score, 93);
+      assert.equal(item.store.job(1)?.notes, "Retain this note.");
+    }
+    assert.equal(item.store.list({ ...query, applications: false, status: "applied" }).total, 0);
+    assert.equal(item.store.list({ ...query, applications: true, status: "ready" }).total, 0);
+  } finally {
+    item.cleanup();
+  }
+});

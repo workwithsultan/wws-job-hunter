@@ -566,31 +566,39 @@ function JobsPage({
   const setupIncomplete = Object.values(missingSetup(workspace)).some(Boolean);
   const searchFailed =
     workspace.lastRun?.status === "failed" || workspace.lastRun?.status === "interrupted";
+  const queueCleared =
+    !applications && workspace.totals.jobs === 0 && workspace.totals.applications > 0;
   const emptyTitle = workspace.running
     ? "Searching for opportunities"
-    : searchFailed
-      ? "Your search needs attention"
-      : workspace.lastRun?.status === "completed"
-        ? "No matching jobs found"
-        : setupIncomplete
-          ? "No jobs yet"
-          : "Ready for your first search";
+    : queueCleared
+      ? "All jobs are tracked in Applications"
+      : searchFailed
+        ? "Your search needs attention"
+        : workspace.lastRun?.status === "completed"
+          ? "No matching jobs found"
+          : setupIncomplete
+            ? "No jobs yet"
+            : "Ready for your first search";
   const emptyMessage = workspace.running
     ? "Your search is running. New jobs will appear here as they are saved."
-    : searchFailed
-      ? workspace.lastRun!.message
-      : workspace.lastRun?.status === "completed"
-        ? "The last search did not add matching roles. Try broader target titles or review your search preferences."
-        : setupIncomplete
-          ? "Add your target roles and profile, then search for jobs that match what you’re looking for."
-          : "Your setup is complete. Start a search to discover and assess new opportunities.";
+    : queueCleared
+      ? "There are no jobs waiting to apply or review. Follow your existing applications in Applications."
+      : searchFailed
+        ? workspace.lastRun!.message
+        : workspace.lastRun?.status === "completed"
+          ? "The last search did not add matching roles. Try broader target titles or review your search preferences."
+          : setupIncomplete
+            ? "Add your target roles and profile, then search for jobs that match what you’re looking for."
+            : "Your setup is complete. Start a search to discover and assess new opportunities.";
   const emptyAction = workspace.running
     ? "View search progress"
-    : searchFailed
-      ? "Review search logs"
-      : setupIncomplete
-        ? "Set up your search"
-        : "Review search preferences";
+    : queueCleared
+      ? "View applications"
+      : searchFailed
+        ? "Review search logs"
+        : setupIncomplete
+          ? "Set up your search"
+          : "Review search preferences";
 
   return (
     <div className={applications ? "applications-layout" : "jobs-layout"}>
@@ -640,7 +648,9 @@ function JobsPage({
                     ([key]) =>
                       key !== "new" &&
                       key !== "not_a_fit" &&
-                      (!applications || applicationStatuses.includes(key as JobStatus)),
+                      (applications
+                        ? applicationStatuses.includes(key as JobStatus)
+                        : key === "ready" || key === "review"),
                   )
                   .map(([value, label]) => ({ value, label })),
               ]}
@@ -669,7 +679,17 @@ function JobsPage({
             </p>
             <Link
               className="button primary"
-              to={applications ? "/jobs" : workspace.running || searchFailed ? "/logs" : "/search"}
+              to={
+                applications
+                  ? "/jobs"
+                  : workspace.running
+                    ? "/logs"
+                    : queueCleared
+                      ? "/applications"
+                      : searchFailed
+                        ? "/logs"
+                        : "/search"
+              }
             >
               {applications ? "Browse jobs" : emptyAction}
               <ArrowRight />
@@ -846,7 +866,9 @@ function JobStatusChoice({
       await api("/api/jobs/" + job.id, "PUT", { status, notes: job.notes });
       await reload();
       if (
-        (applications && !applicationStatuses.includes(status)) ||
+        (applications
+          ? !applicationStatuses.includes(status)
+          : status !== "ready" && status !== "review") ||
         (filterStatus && filterStatus !== status)
       )
         document.getElementById("main")?.focus({ preventScroll: true });

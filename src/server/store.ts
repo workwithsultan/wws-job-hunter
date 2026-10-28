@@ -128,17 +128,25 @@ export class Store {
     const count = (statuses: readonly JobStatus[]) =>
       rows.filter((r) => statuses.includes(r.status)).reduce((sum, r) => sum + r.count, 0);
     return {
-      jobs: rows.reduce((n, r) => n + r.count, 0),
+      jobs: count(["ready", "review"]),
       matches: Number(
         (
-          this.db.prepare("SELECT count(*) AS count FROM jobs WHERE assessment='match'").get() as {
+          this.db
+            .prepare(
+              "SELECT count(*) AS count FROM jobs WHERE assessment='match' AND status IN ('ready','review')",
+            )
+            .get() as {
             count: number;
           }
         ).count,
       ),
       review: Number(
         (
-          this.db.prepare("SELECT count(*) AS count FROM jobs WHERE assessment='review'").get() as {
+          this.db
+            .prepare(
+              "SELECT count(*) AS count FROM jobs WHERE assessment='review' AND status IN ('ready','review')",
+            )
+            .get() as {
             count: number;
           }
         ).count,
@@ -155,6 +163,7 @@ export class Store {
       clauses.push(
         "status IN ('applied','interviewing','offer','accepted','rejected','withdrawn')",
       );
+    else clauses.push("status IN ('ready','review')");
     if (query.status) {
       clauses.push("status = ?");
       values.push(query.status);
