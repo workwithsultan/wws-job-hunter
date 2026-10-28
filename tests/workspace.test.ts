@@ -1,6 +1,11 @@
 import { runDuration } from "../web/log-format.js";
 import { countryEmoji } from "../src/shared/emoji.js";
-import { assessmentSchema, assessmentLabel, assessmentStatus } from "../src/shared/assessment.js";
+import {
+  assessmentSchema,
+  assessmentLabel,
+  assessmentStatus,
+  matchScoreLabel,
+} from "../src/shared/assessment.js";
 import { test } from "node:test";
 import Database from "better-sqlite3";
 import {
@@ -455,36 +460,33 @@ test("resume metadata accepts only a PDF filename and bounded page count", () =>
   );
 });
 
-test("match decisions have clear labels and never require a numeric score", () => {
+test("match decisions validate bounded percentage scores without inventing missing scores", () => {
+  assert.equal(matchScoreLabel({ assessment: "match", score: 92 }), "92%");
+  assert.equal(matchScoreLabel({ assessment: "match", score: null }), "Needs review");
+  assert.equal(matchScoreLabel({ assessment: "review", score: 55 }), "Needs review");
   assert.equal(assessmentLabel("match"), "Match");
-  assert.equal(assessmentLabel("not_a_match"), "Not a match");
-  assert.equal(assessmentLabel("review"), "Needs review");
-  assert.equal(assessmentLabel(null), "Not assessed");
   assert.equal(assessmentStatus("match"), "ready");
   assert.equal(assessmentStatus("not_a_match"), "not_a_fit");
   assert.equal(assessmentStatus("review"), "review");
+  for (const score of [0, 100, null])
+    assert.equal(
+      assessmentSchema.safeParse({ verdict: "match", score, reason: "Supported evidence." })
+        .success,
+      true,
+    );
+  for (const score of [-1, 101, 5.5, "90"])
+    assert.equal(
+      assessmentSchema.safeParse({ verdict: "match", score, reason: "Supported evidence." })
+        .success,
+      false,
+    );
   assert.equal(
-    assessmentSchema.safeParse({
-      verdict: "match",
-      reason: "The stated requirements are supported.",
-    }).success,
-    true,
-  );
-  assert.equal(
-    assessmentSchema.safeParse({
-      verdict: "match",
-      reason: "The stated requirements are supported.",
-      score: 90,
-    }).success,
-    false,
-  );
-  assert.equal(
-    assessmentSchema.safeParse({ verdict: "unknown", reason: "Unclear." }).success,
+    assessmentSchema.safeParse({ verdict: "match", reason: "Supported evidence." }).success,
     false,
   );
 });
 
-test("schema upgrade removes numeric scores and keeps assessment and application state separate", () => {
+test("schema upgrade retains existing numeric scores and keeps assessment and application state separate", () => {
   const directory = mkdtempSync(join(tmpdir(), "job-hunter-assessment-upgrade-"));
   const path = join(directory, "workspace.sqlite");
   try {
@@ -492,9 +494,28 @@ test("schema upgrade removes numeric scores and keeps assessment and application
     db.exec(
       "CREATE TABLE jobs (id INTEGER PRIMARY KEY,title TEXT NOT NULL,url TEXT NOT NULL UNIQUE,source TEXT NOT NULL,snippet TEXT NOT NULL,description TEXT NOT NULL,score INTEGER CHECK(score BETWEEN 0 AND 100),reason TEXT NOT NULL,status TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);CREATE TABLE runs (id INTEGER PRIMARY KEY,startedAt TEXT NOT NULL,finishedAt TEXT,status TEXT NOT NULL,found INTEGER NOT NULL DEFAULT 0,added INTEGER NOT NULL DEFAULT 0,ready INTEGER NOT NULL DEFAULT 0,review INTEGER NOT NULL DEFAULT 0,message TEXT NOT NULL DEFAULT '',trigger TEXT NOT NULL);PRAGMA user_version=1;",
     );
+    db.prepare(
+      "INSERT INTO jobs(title,url,source,snippet,description,score,reason,status,notes,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+    ).run(
+      "Operations Manager",
+      "https://jobs.lever.co/example/legacy",
+      "jobs.lever.co",
+      "Operations",
+      "Description",
+      88,
+      "Existing assessment",
+      "applied",
+      "Keep the original note.",
+      "2026-10-01T00:00:00Z",
+      "2026-10-01T00:00:00Z",
+    );
     db.close();
     const store = new Store(path);
-    assert.deepEqual(store.allJobs(), []);
+    assert.equal(store.allJobs().length, 1);
+    assert.equal(store.job(1)?.score, 88);
+    assert.equal(store.job(1)?.status, "applied");
+    assert.equal(store.job(1)?.notes, "Keep the original note.");
+    assert.equal(store.list({ q: "", status: "", applications: true, page: 1 }).total, 1);
     assert.equal(store.totals().matches, 0);
     store.close();
     const check = new Database(path);
@@ -502,13 +523,13 @@ test("schema upgrade removes numeric scores and keeps assessment and application
       const columns = check.prepare("PRAGMA table_info(jobs)").all() as { name: string }[];
       assert.equal(
         columns.some((c) => c.name === "score"),
-        false,
+        true,
       );
       assert.equal(
         columns.some((c) => c.name === "assessment"),
         true,
       );
-      assert.equal(check.pragma("user_version", { simple: true }), 2);
+      assert.equal(check.pragma("user_version", { simple: true }), 3);
     } finally {
       check.close();
     }
@@ -674,4 +695,112 @@ test("search durations remain readable for short and long runs", () => {
     runDuration({ startedAt, finishedAt: "2026-10-28T11:02:00Z", status: "completed" }),
     "1h 2m",
   );
+});
+
+test("only assessed matches and review jobs appear in lists, totals, details and CSV", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, item.directory, 8790);
+  try {
+    const base = {
+      title: "Operations Manager",
+      source: "jobs.lever.co" as const,
+      snippet: "Operations",
+      description: "Operations role",
+      reason: "Evidence",
+    };
+    for (const [index, assessment] of ["match", "review", "not_a_match", null].entries()) {
+      item.store.insert({
+        ...base,
+        url: `https://jobs.lever.co/example/${index}`,
+        assessment: assessment as "match" | "review" | "not_a_match" | null,
+        status: "new",
+      });
+      if (assessment)
+        item.store.assess(index + 1, {
+          description: "Operations role",
+          assessment: assessment as "match" | "review" | "not_a_match",
+          score: assessment === "match" ? 91 : null,
+          reason: "Evidence",
+          status:
+            assessment === "match" ? "ready" : assessment === "review" ? "review" : "not_a_fit",
+        });
+    }
+    const query = { q: "", status: "", applications: false, page: 1 };
+    assert.equal(item.store.list(query).total, 2);
+    assert.equal(item.store.totals().jobs, 2);
+    assert.equal(item.store.has("https://jobs.lever.co/example/2"), true);
+    assert.equal(item.store.pending().length, 1);
+    item.store.update(1, "applied", "Keep this note.");
+    assert.equal(item.store.list({ ...query, applications: true }).total, 1);
+    const headers = { host: "127.0.0.1:8790" };
+    for (const id of [3, 4])
+      assert.equal((await app.inject({ url: "/api/jobs/" + id, headers })).statusCode, 404);
+    const csv = await app.inject({ url: "/api/export", headers });
+    assert.equal(csv.body.split("\r\n").length, 3);
+    assert.match(csv.body, /Score \(%\)/);
+    assert.doesNotMatch(csv.body, /example\/2|example\/3/);
+    const reopened = new Store(join(item.directory, "workspace.sqlite"));
+    assert.equal(reopened.job(1)?.score, 91);
+    assert.equal(reopened.job(1)?.notes, "Keep this note.");
+    reopened.close();
+  } finally {
+    await app.close();
+    item.cleanup();
+  }
+});
+
+test("resume replacement atomically persists PDF and matching text and rejects invalid uploads", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, item.directory, 8790);
+  try {
+    const headers = {
+      host: "127.0.0.1:8790",
+      origin: "http://127.0.0.1:8790",
+      "content-type": "application/json",
+    };
+    assert.equal((await app.inject({ url: "/api/resume", headers })).statusCode, 404);
+    const pdf = Buffer.from("%PDF-1.7\nResume bytes for persistence validation.\n%%EOF");
+    const payload = {
+      resume: { name: "Resume.pdf", pages: 1 },
+      profile: "Operations experience with customer support.",
+      pdf: pdf.toString("base64"),
+    };
+    const saved = await app.inject({ method: "PUT", url: "/api/resume", headers, payload });
+    assert.equal(saved.statusCode, 200);
+    const preview = await app.inject({ url: "/api/resume", headers });
+    assert.equal(preview.headers["content-type"], "application/pdf");
+    assert.match(String(preview.headers["content-disposition"]), /^inline/);
+    assert.deepEqual(preview.rawPayload, pdf);
+    assert.equal(item.store.preferences().profile, payload.profile);
+    assert.equal(item.store.hasResumeDocument(), true);
+    for (const invalid of ["not-base64", Buffer.from("not a PDF").toString("base64")]) {
+      const response = await app.inject({
+        method: "PUT",
+        url: "/api/resume",
+        headers,
+        payload: { ...payload, pdf: invalid, profile: "This must not replace the saved profile." },
+      });
+      assert.equal(response.statusCode, 400);
+      assert.deepEqual(item.store.resumeDocument(), pdf);
+      assert.equal(item.store.preferences().profile, payload.profile);
+    }
+    const denied = await app.inject({
+      method: "PUT",
+      url: "/api/resume",
+      headers: { ...headers, origin: "https://example.com" },
+      payload,
+    });
+    assert.equal(denied.statusCode, 403);
+    assert.deepEqual(item.store.resumeDocument(), pdf);
+    item.store.savePreferences({ ...item.store.preferences(), country: "id" });
+    assert.deepEqual(item.store.resumeDocument(), pdf);
+    item.store.savePreferences({
+      ...item.store.preferences(),
+      profile: "A different programmatically saved resume summary.",
+    });
+    assert.equal(item.store.hasResumeDocument(), false);
+  } finally {
+    await app.close();
+    item.cleanup();
+  }
 });

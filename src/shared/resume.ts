@@ -30,3 +30,20 @@ export const resumeMetadataSchema = z
   })
   .strict();
 export type ResumeMetadata = z.infer<typeof resumeMetadataSchema>;
+
+export const resumeUploadSchema = z
+  .object({
+    resume: resumeMetadataSchema,
+    profile: z
+      .string()
+      .trim()
+      .min(10)
+      .max(resumeLimits.characters)
+      .refine(readableResume, "Choose a PDF with readable resume text."),
+    pdf: z
+      .string()
+      .min(4)
+      .max(Math.ceil(resumeLimits.bytes / 3) * 4)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  })
+  .strict();

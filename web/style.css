@@ -634,15 +634,9 @@ tbody tr:last-child td {
   line-height: 1rem;
   white-space: nowrap;
 }
-.status-ready,
-.status-interviewing,
-.status-offer,
 .run-running {
   color: var(--selected-fg);
 }
-.status-ready,
-.status-interviewing,
-.status-offer,
 .run-running {
   background: var(--selected);
 }
@@ -824,6 +818,7 @@ details summary {
     monospace;
 }
 .provider-heading {
+  min-height: 2.25rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1435,7 +1430,7 @@ details summary {
   color: var(--foreground);
   font-weight: 500;
 }
-.profile-form fieldset {
+.profile-form {
   display: grid;
   gap: 1rem;
 }
@@ -1470,20 +1465,16 @@ details summary {
 }
 
 .resume-import {
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 1rem;
+  display: block;
 }
 .resume-import .field {
-  flex: 0 1 auto;
+  width: 100%;
   min-width: 0;
 }
 
 #settings-resume {
-  width: fit-content;
-  align-self: flex-start;
-  justify-self: start;
+  width: 100%;
+  align-self: stretch;
 }
 
 .resume-summary {
@@ -1496,14 +1487,14 @@ details summary {
   border: 1px solid var(--border);
   border-radius: 0.75rem;
 }
-.resume-summary > div {
+.resume-summary .resume-file {
   display: flex;
   gap: 0.75rem;
   align-items: center;
   min-width: 0;
   flex: 1;
 }
-.resume-summary > div > div {
+.resume-file > div {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -1515,7 +1506,7 @@ details summary {
   font-weight: 500;
   overflow-wrap: anywhere;
 }
-.resume-summary span {
+.resume-file span {
   color: var(--muted);
   font-size: 0.75rem;
   line-height: 1rem;
@@ -1524,10 +1515,6 @@ details summary {
   width: 1.25rem;
   height: 1.25rem;
   flex: none;
-}
-.resume-review-text {
-  min-height: 16rem;
-  max-height: 50vh;
 }
 
 .assessment-match {
@@ -1899,7 +1886,7 @@ h2 {
 @media (min-width: 1280px) {
   .settings-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-areas: "resume serpapi" "openai serpapi";
+    grid-template-areas: "resume resume" "openai serpapi";
     grid-template-rows: auto 1fr;
     align-items: start;
     column-gap: 2rem;
@@ -1968,4 +1955,252 @@ h2 {
     display: inline-flex;
     align-items: center;
   }
+}
+
+/* Status hues follow the original spreadsheet; foregrounds retain readable contrast. */
+.status-ready {
+  --status-bg: #d8e8ff;
+  --status-fg: #1e3a5f;
+}
+.status-review {
+  --status-bg: #fce8a0;
+  --status-fg: #643c0b;
+}
+.status-applied {
+  --status-bg: #d8edd1;
+  --status-fg: #254c20;
+}
+.status-interviewing {
+  --status-bg: #d1e8ed;
+  --status-fg: #214c56;
+}
+.status-offer {
+  --status-bg: #d8d1e8;
+  --status-fg: #4b3269;
+}
+.status-accepted {
+  --status-bg: #b7d6a8;
+  --status-fg: #24451d;
+}
+.status-rejected {
+  --status-bg: #f4cccc;
+  --status-fg: #7d2525;
+}
+.status-withdrawn {
+  --status-bg: #ededed;
+  --status-fg: #474747;
+}
+.job-status-control .choice-trigger,
+.badge[class*="status-"] {
+  color: var(--status-fg);
+  background: var(--status-bg);
+  border-color: currentColor;
+}
+.job-status-control .choice-trigger {
+  min-height: 2rem;
+  height: auto;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  width: 100%;
+  gap: 0.5rem;
+}
+.job-status-control .choice-trigger:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.job-status-control {
+  min-width: 0;
+  width: 8.75rem;
+}
+.job-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.job-edit {
+  flex: none;
+}
+.trigger-manual {
+  color: #1e3a5f;
+  background: #d8e8ff;
+}
+.trigger-schedule {
+  color: #4b3269;
+  background: #e9def5;
+}
+.resume-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.resume-name {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 500;
+  color: var(--foreground);
+  text-underline-offset: 0.2em;
+  overflow-wrap: anywhere;
+}
+.resume-summary .resume-file {
+  flex: 1 1 12rem;
+}
+.resume-actions svg {
+  width: 1rem;
+  height: 1rem;
+}
+.search-sources {
+  display: block;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.search-sources > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  min-height: 2.25rem;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+.search-sources > summary::after {
+  content: "+";
+  margin-inline-start: 0.5rem;
+}
+.search-sources[open] > summary::after {
+  content: "−";
+}
+.search-sources[open] > :not(summary) {
+  margin-block-start: 1rem;
+}
+.search-schedule {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  margin-block: 1.5rem;
+}
+.search-schedule .schedule-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+@media (min-width: 1280px) {
+  .search-form > fieldset {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    column-gap: 2rem;
+    align-items: start;
+  }
+  .search-keywords {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+  .search-keywords .keyword-grid,
+  .search-location .keyword-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .search-location {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+  .search-schedule {
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+  .search-sources {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+  .search-form .form-actions {
+    grid-column: 1 / -1;
+    grid-row: 5;
+    margin-block-start: 1.5rem;
+  }
+}
+@media (max-width: 767px) {
+  .job-row-actions {
+    flex-direction: column;
+    align-items: start;
+    gap: 0.25rem;
+  }
+  .job-status-control {
+    width: 7.75rem;
+  }
+}
+@media (pointer: coarse) {
+  .job-status-control .choice-trigger,
+  .resume-name,
+  .search-sources > summary {
+    min-height: 2.75rem;
+  }
+  .resume-name {
+    display: flex;
+    align-items: center;
+  }
+}
+
+@media (max-width: 767px) {
+  .jobs-table td:first-child {
+    min-width: 6rem;
+  }
+}
+
+.resume-name {
+  padding: 0;
+  min-height: auto;
+  border: 0;
+  text-align: start;
+  text-decoration: underline;
+  white-space: normal;
+}
+.dialog-wide {
+  width: min(40rem, calc(100vw - 2rem));
+}
+.pdf-preview {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.pdf-toolbar,
+.pdf-toolbar > div {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.pdf-toolbar {
+  justify-content: space-between;
+}
+.pdf-toolbar span {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted);
+}
+.pdf-paper {
+  width: 100%;
+  min-width: 0;
+}
+.pdf-paper canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+}
+.pdf-paper canvas[hidden] {
+  display: none;
+}
+
+.jobs-table .assessment-cell {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
 }

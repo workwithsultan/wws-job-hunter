@@ -26,6 +26,7 @@ export function Modal({
   description,
   children,
   drawer = false,
+  wide = false,
   busy = false,
   returnFocus,
 }: {
@@ -35,6 +36,7 @@ export function Modal({
   description?: string;
   children: ReactNode;
   drawer?: boolean;
+  wide?: boolean;
   busy?: boolean;
   returnFocus?: () => void;
 }) {
@@ -56,7 +58,7 @@ export function Modal({
         <Dialog.Overlay className="scrim" />
         <Dialog.Content
           ref={attach}
-          className={drawer ? "dialog drawer" : "dialog"}
+          className={drawer ? "dialog drawer" : wide ? "dialog dialog-wide" : "dialog"}
           aria-describedby={description ? descriptionId : undefined}
           onEscapeKeyDown={(event) => {
             if (busy) event.preventDefault();

@@ -60,7 +60,7 @@ export async function readResume(file: File, signal: AbortSignal): Promise<Resum
             page.cleanup();
             if (pages.join("\n\n").length > resumeLimits.characters)
               throw new ResumeReadError(
-                "The extracted text exceeds the 12,000-character profile limit. Choose a shorter resume or enter a summary manually.",
+                "The extracted text exceeds the 12,000-character profile limit. Choose a shorter resume.",
               );
           }
           const text = pages.join("\n\n").trim();
@@ -117,8 +117,6 @@ export async function readResume(file: File, signal: AbortSignal): Promise<Resum
       throw new ResumeReadError(
         "This PDF is password-protected. Export an unlocked copy before importing.",
       );
-    throw new ResumeReadError(
-      "This PDF could not be read. Choose another PDF or enter your profile manually.",
-    );
+    throw new ResumeReadError("This PDF could not be read. Choose another PDF.");
   }
 }

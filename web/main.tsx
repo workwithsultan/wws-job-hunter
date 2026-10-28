@@ -1,6 +1,6 @@
 import { InteractionProvider, useInteractionState, useActivity } from "./interaction";
 import { countryEmoji, workTypeEmoji } from "../src/shared/emoji";
-import { assessmentLabel } from "../src/shared/assessment";
+import { matchScoreLabel } from "../src/shared/assessment";
 import { StrictMode, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -27,6 +27,7 @@ import {
   ListFilter,
   Menu,
   Play,
+  Pencil,
   Search as SearchIcon,
   Settings2,
   ScrollText,
@@ -39,6 +40,7 @@ import {
   searchPreferenceKeys,
   sources,
   statusLabels,
+  visibleJobStatuses,
   type Job,
   type JobList,
   type JobStatus,
@@ -47,9 +49,8 @@ import {
 } from "../src/shared/model";
 import { countries } from "../src/shared/countries";
 import { countryName, workTypes } from "../src/shared/search-scope";
-import { searchChanged, searchValid, profileValid } from "./form-state";
+import { searchChanged, searchValid } from "./form-state";
 import { searchBudget } from "../src/shared/budget";
-import type { ResumeMetadata } from "../src/shared/resume";
 import { ResumeImport } from "./resume-import";
 import { ProviderSettings, useQuota } from "./providers";
 import { api, ApiError, dateText } from "./api";
@@ -348,6 +349,7 @@ function App() {
                   <JobsPage
                     workspace={workspace}
                     version={version}
+                    reload={reload}
                     applications={false}
                     active={location.pathname === "/jobs"}
                   />
@@ -356,6 +358,7 @@ function App() {
                   <JobsPage
                     workspace={workspace}
                     version={version}
+                    reload={reload}
                     applications
                     active={location.pathname === "/applications"}
                   />
@@ -495,6 +498,7 @@ function App() {
   );
 }
 function JobsPage({
+  reload,
   workspace,
   version,
   applications,
@@ -502,6 +506,7 @@ function JobsPage({
 }: {
   workspace: Workspace;
   version: number;
+  reload: () => Promise<void>;
   applications: boolean;
   active: boolean;
 }) {
@@ -549,7 +554,7 @@ function JobsPage({
   const stats = applications
     ? [
         { label: "Applications", value: workspace.totals.applications, icon: FileText },
-        { label: "Interviewing", value: workspace.totals.interviewing, icon: Clock3 },
+        { label: "Interviewed", value: workspace.totals.interviewing, icon: Clock3 },
         { label: "Offers", value: workspace.totals.offers, icon: CheckCircle2 },
       ]
     : [
@@ -632,7 +637,10 @@ function JobsPage({
                 { value: "", label: "All statuses" },
                 ...Object.entries(statusLabels)
                   .filter(
-                    ([key]) => !applications || applicationStatuses.includes(key as JobStatus),
+                    ([key]) =>
+                      key !== "new" &&
+                      key !== "not_a_fit" &&
+                      (!applications || applicationStatuses.includes(key as JobStatus)),
                   )
                   .map(([value, label]) => ({ value, label })),
               ]}
@@ -691,7 +699,7 @@ function JobsPage({
                   <tr>
                     <th scope="col">Role</th>
                     <th scope="col" className="assessment-cell">
-                      Match
+                      Score
                     </th>
                     <th scope="col" className="desktop-cell">
                       Source
@@ -706,20 +714,15 @@ function JobsPage({
                   {data.jobs.map((job) => (
                     <tr key={job.id}>
                       <td>
-                        <Link
+                        <a
                           className="job-title"
-                          data-job-id={job.id}
-                          onClick={(event) => event.currentTarget.focus({ preventScroll: true })}
-                          to={{
-                            search: new URLSearchParams({
-                              ...Object.fromEntries(params),
-                              job: String(job.id),
-                            }).toString(),
-                          }}
+                          href={job.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
                         >
                           {job.title}
                           <ArrowUpRight aria-hidden="true" />
-                        </Link>
+                        </a>
                         <span className="mobile-source">
                           {sources[job.source]} ·{" "}
                           <time dateTime={job.createdAt}>
@@ -734,19 +737,37 @@ function JobsPage({
                             "badge mobile-assessment assessment-" + (job.assessment ?? "pending")
                           }
                         >
-                          {assessmentLabel(job.assessment)}
+                          {matchScoreLabel(job)}
                         </span>
                       </td>
                       <td className="assessment-cell">
                         <span className={"badge assessment-" + (job.assessment ?? "pending")}>
-                          {assessmentLabel(job.assessment)}
+                          {matchScoreLabel(job)}
                         </span>
                       </td>
                       <td className="desktop-cell">{sources[job.source]}</td>
                       <td>
-                        <span className={"badge status-" + job.status}>
-                          {statusLabels[job.status]}
-                        </span>
+                        <div className="job-row-actions">
+                          <JobStatusChoice
+                            job={job}
+                            reload={reload}
+                            applications={applications}
+                            filterStatus={status}
+                          />
+                          <Link
+                            className="icon-button ghost job-edit"
+                            aria-label={"Edit notes for " + job.title}
+                            data-job-id={job.id}
+                            to={{
+                              search: new URLSearchParams({
+                                ...Object.fromEntries(params),
+                                job: String(job.id),
+                              }).toString(),
+                            }}
+                          >
+                            <Pencil aria-hidden="true" />
+                          </Link>
+                        </div>
                       </td>
                       <td className="desktop-cell">
                         <time dateTime={job.createdAt}>{dateText(job.createdAt)}</time>
@@ -785,6 +806,66 @@ function JobsPage({
           </>
         )}
       </div>
+    </div>
+  );
+}
+function JobStatusChoice({
+  job,
+  reload,
+  applications,
+  filterStatus,
+}: {
+  job: Job;
+  reload: () => Promise<void>;
+  applications: boolean;
+  filterStatus: string;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const confirm = useConfirm();
+  const interaction = useInteractionState();
+  useActivity(busy, "write");
+  const change = async (value: string) => {
+    if (busy || interaction.writing || value === job.status) return;
+    const status = value as JobStatus;
+    if (
+      !(await confirm({
+        title: "Change application status?",
+        description: job.title,
+        action: "Change status",
+        details: [
+          { label: "From", value: statusLabels[job.status] },
+          { label: "To", value: statusLabels[status] },
+        ],
+      }))
+    )
+      return;
+    setBusy(true);
+    setFailure("");
+    try {
+      await api("/api/jobs/" + job.id, "PUT", { status, notes: job.notes });
+      await reload();
+      if (
+        (applications && !applicationStatuses.includes(status)) ||
+        (filterStatus && filterStatus !== status)
+      )
+        document.getElementById("main")?.focus({ preventScroll: true });
+    } catch (error) {
+      setFailure(errorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={"job-status-control status-" + job.status} aria-busy={busy}>
+      <Choice
+        label={"Status for " + job.title + " (required)"}
+        value={job.status}
+        onChange={(value) => void change(value)}
+        disabled={busy || interaction.writing}
+        options={visibleJobStatuses}
+      />
+      {failure && <Alert>{failure}</Alert>}
     </div>
   );
 }
@@ -924,7 +1005,6 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
       onClose={() => void close()}
       title={job?.title ?? "Job details"}
       busy={busy}
-      drawer
     >
       {failure && <Alert>{failure}</Alert>}
       {!job && !failure && <Busy label="Loading job…" />}
@@ -933,7 +1013,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
           <div className="detail-meta">
             <span className="badge">{sources[job.source]}</span>
             <span className={"badge assessment-" + (job.assessment ?? "pending")}>
-              {assessmentLabel(job.assessment)}
+              {matchScoreLabel(job)}
             </span>
           </div>
           {job.reason && <p className="match-reason">{job.reason}</p>}
@@ -950,7 +1030,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
                 setSaved(false);
               }}
               label="Application status"
-              options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+              options={visibleJobStatuses}
             />
           </Field>
           <Field id="jobNotes" label="Notes (optional)">
@@ -1155,7 +1235,7 @@ function SearchPage({
       {failure && <Alert>{failure}</Alert>}
       <form onSubmit={(event) => void save(event)} noValidate className="search-form">
         <fieldset disabled={workspace.running || busy || interaction.writing}>
-          <section className="search-section">
+          <section className="search-section search-keywords">
             <h2>
               <Emoji>🎯</Emoji>Job titles
             </h2>
@@ -1188,7 +1268,7 @@ function SearchPage({
               </Field>
             </div>
           </section>
-          <section className="search-section">
+          <section className="search-section search-location">
             <h2>
               <Emoji>🌍</Emoji>Location and work type
             </h2>
@@ -1222,21 +1302,16 @@ function SearchPage({
               </Field>
             </div>
           </section>
-          <section className="search-section">
-            <h2 id="source-heading">
-              <Emoji>🔗</Emoji>Job sites
-            </h2>
+          <details className="search-section search-sources">
+            <summary id="source-heading">
+              <Emoji>🔗</Emoji>Job sites · 5 sources
+            </summary>
             <ul className="site-list" aria-labelledby="source-heading">
               {Object.entries(sources).map(([domain, label]) => (
                 <li key={domain}>{label}</li>
               ))}
             </ul>
             <p className="site-summary">All sites are searched automatically.</p>
-            {quotaError && (
-              <Alert retrying={quotaLoading} onRetry={() => void refreshQuota()}>
-                {quotaError}
-              </Alert>
-            )}
             {budget.remaining !== null && (
               <div className="search-usage" role="status">
                 <span>
@@ -1249,8 +1324,8 @@ function SearchPage({
                 )}
               </div>
             )}
-          </section>
-          <section className="search-section">
+          </details>
+          <section className="search-section search-schedule">
             <div className="schedule-heading">
               <h2>
                 <Emoji>🗓️</Emoji>Schedule
@@ -1377,6 +1452,11 @@ function SearchPage({
           </div>
         </fieldset>
       </form>
+      {quotaError && (
+        <Alert retrying={quotaLoading} onRetry={() => void refreshQuota()}>
+          {quotaError}
+        </Alert>
+      )}
       {query && (
         <details className="query-details">
           <summary>Search query</summary>
@@ -1395,220 +1475,29 @@ function SettingsPage({
   reload: () => Promise<void>;
   active: boolean;
 }) {
-  const [profile, setProfile] = useState(workspace.preferences.profile);
-  const [resume, setResume] = useState<ResumeMetadata | null>(workspace.preferences.resume);
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [reviewText, setReviewText] = useState("");
-  const [baseline, setBaseline] = useState(workspace.preferences);
-  const dirty =
-    profile !== baseline.profile || JSON.stringify(resume) !== JSON.stringify(baseline.resume);
-  const valid = profileValid(profile);
-  const confirm = useConfirm();
-  const interaction = useInteractionState();
-  const [failure, setFailure] = useState("");
-  const [busy, setBusy] = useState(false);
   const [readingResume, setReadingResume] = useState(false);
-  const [resumeVersion, setResumeVersion] = useState(0);
-  const [saved, setSaved] = useState(false);
-  useDraftWarning(dirty || (reviewOpen && reviewText !== profile));
-  useActivity(busy || readingResume, "write");
-  useEffect(() => {
-    if (
-      !dirty ||
-      (profile === workspace.preferences.profile &&
-        JSON.stringify(resume) === JSON.stringify(workspace.preferences.resume))
-    ) {
-      setBaseline(workspace.preferences);
-      setProfile(workspace.preferences.profile);
-      setResume(workspace.preferences.resume);
-    }
-  }, [workspace.preferences, dirty, profile, resume]);
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy || interaction.writing || !dirty) return;
-    if (!valid) {
-      setFailure("Upload a readable resume PDF before saving.");
-      document.getElementById("settings-resume")?.focus();
-      return;
-    }
-    if (
-      !(await confirm({
-        title: "Save this resume?",
-        emoji: "📄",
-        description: "Use this profile for future job matching.",
-        action: "Save profile",
-        details: [
-          { label: "Resume", value: resume?.name ?? "Saved profile text" },
-          { label: "Text", value: `${profile.length.toLocaleString()} characters` },
-        ],
-      }))
-    )
-      return;
-    setBusy(true);
-    setFailure("");
-    try {
-      await api("/api/preferences/profile", "PATCH", { profile, resume });
-      await reload();
-      setBaseline({ ...workspace.preferences, profile, resume });
-      setResumeVersion((value) => value + 1);
-      setSaved(true);
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const interaction = useInteractionState();
+  useActivity(readingResume, "write");
   return (
-    <>
-      {failure && <Alert>{failure}</Alert>}
-      <div className="settings-layout">
-        <form
-          aria-labelledby="resume-heading"
-          className="profile-form"
-          onSubmit={(event) => void save(event)}
-          noValidate
-        >
-          <fieldset disabled={busy || workspace.running || readingResume || interaction.writing}>
-            <h2 id="resume-heading">
-              <Emoji>📄</Emoji>Resume
-            </h2>
-            <ResumeImport
-              key={resumeVersion}
-              active={active}
-              onReadingChange={setReadingResume}
-              disabled={busy || workspace.running || readingResume || interaction.writing}
-              hasProfile={Boolean(profile.trim())}
-              onApply={(value) => {
-                setProfile(value.text);
-                setResume({ name: value.name, pages: value.pages });
-                setSaved(false);
-              }}
-            />
-            {profile && (
-              <div className="resume-summary">
-                <div>
-                  <FileText aria-hidden="true" />
-                  <div>
-                    <strong>{resume?.name ?? "Saved profile text"}</strong>
-                    {resume && (
-                      <span>
-                        {resume.pages} {resume.pages === 1 ? "page" : "pages"}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  id="review-resume"
-                  onClick={() => {
-                    setReviewText(profile);
-                    setReviewOpen(true);
-                  }}
-                >
-                  Review text
-                </button>
-              </div>
-            )}
-            <div className="form-actions">
-              <button className="primary" disabled={!dirty || !valid || busy}>
-                <PendingLabel pending={busy} idle="Save profile" busy="Saving…" />
-              </button>
-              {dirty && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setResumeVersion((value) => value + 1);
-                    setProfile(workspace.preferences.profile);
-                    setResume(workspace.preferences.resume);
-                    setBaseline(workspace.preferences);
-                    requestAnimationFrame(() =>
-                      document
-                        .getElementById(
-                          workspace.preferences.profile ? "review-resume" : "settings-resume",
-                        )
-                        ?.focus(),
-                    );
-                  }}
-                >
-                  Cancel
-                </button>
-              )}
-              {saved && (
-                <span className="saved" role="status">
-                  <Check />
-                  Saved
-                </span>
-              )}
-            </div>
-          </fieldset>
-        </form>
-        <ProviderSettings workspace={workspace} reload={reload} active={active} />
-      </div>
-      <Modal
-        returnFocus={() =>
-          requestAnimationFrame(() => document.getElementById("review-resume")?.focus())
-        }
-        open={active && reviewOpen}
-        title="Resume text"
-        onClose={() => {
-          void (async () => {
-            if (
-              reviewText !== profile &&
-              !(await confirm({
-                title: "Discard text edits?",
-                description: "Your edits in this review have not been applied to the resume draft.",
-                action: "Discard edits",
-                destructive: true,
-              }))
-            )
-              return;
-            setReviewOpen(false);
-            setReviewText("");
-          })();
-        }}
-      >
-        <Field
-          id="resume-review-text"
-          label="Extracted text (required)"
-          error={
-            reviewText !== profile && !profileValid(reviewText)
-              ? "Use between 10 and 12,000 characters."
-              : undefined
-          }
-        >
-          <textarea
-            className="resume-review-text"
-            value={reviewText}
-            maxLength={12000}
-            onChange={(event) => setReviewText(event.target.value)}
-          />
-        </Field>
-        <div className="dialog-actions">
-          <button
-            type="button"
-            onClick={() => {
-              setReviewOpen(false);
-              setReviewText("");
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="primary"
-            disabled={reviewText === profile || !profileValid(reviewText)}
-            onClick={() => {
-              setProfile(reviewText);
-              setSaved(false);
-              setReviewOpen(false);
-              setReviewText("");
-            }}
-          >
-            Use changes
-          </button>
-        </div>
-      </Modal>
-    </>
+    <div className="settings-layout">
+      <section className="profile-form" aria-labelledby="resume-heading">
+        <h2 id="resume-heading">
+          <Emoji>📄</Emoji>Resume
+        </h2>
+        <ResumeImport
+          active={active}
+          onReadingChange={setReadingResume}
+          disabled={workspace.running || readingResume || interaction.writing}
+          resume={workspace.preferences.resume}
+          available={workspace.resumeAvailable}
+          onApply={async (value) => {
+            await api("/api/resume", "PUT", value);
+            await reload();
+          }}
+        />
+      </section>
+      <ProviderSettings workspace={workspace} reload={reload} active={active} />
+    </div>
   );
 }
 createRoot(document.getElementById("root")!).render(

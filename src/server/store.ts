@@ -23,9 +23,10 @@ export class Store {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.db.pragma("busy_timeout = 5000");
-    if (Number(this.db.pragma("user_version", { simple: true })) > 2)
+    if (Number(this.db.pragma("user_version", { simple: true })) > 3)
       throw new Error("This database requires a newer version of Job Hunter.");
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS resume_document (id INTEGER PRIMARY KEY CHECK(id=1), pdf BLOB NOT NULL);
       CREATE TABLE IF NOT EXISTS preferences (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS jobs (
         id INTEGER PRIMARY KEY, title TEXT NOT NULL, url TEXT NOT NULL UNIQUE, source TEXT NOT NULL,
@@ -43,19 +44,20 @@ export class Store {
     `);
     this.db.transaction(() => {
       const jobs = this.db.prepare("PRAGMA table_info(jobs)").all() as { name: string }[];
-      if (jobs.some((column) => column.name === "score")) {
+      if (!jobs.some((column) => column.name === "assessment")) {
         this.db.exec(
           "ALTER TABLE jobs ADD COLUMN assessment TEXT CHECK(assessment IN ('match','not_a_match','review'))",
         );
         this.db.exec(
-          "UPDATE jobs SET assessment=CASE status WHEN 'ready' THEN 'match' WHEN 'not_a_fit' THEN 'not_a_match' WHEN 'review' THEN 'review' ELSE NULL END",
+          "UPDATE jobs SET assessment=CASE status WHEN 'ready' THEN 'match' WHEN 'not_a_fit' THEN 'not_a_match' WHEN 'review' THEN 'review' ELSE CASE WHEN status IN ('applied','interviewing','offer','accepted','rejected','withdrawn') THEN 'review' ELSE NULL END END",
         );
-        this.db.exec("ALTER TABLE jobs DROP COLUMN score");
       }
+      if (!jobs.some((column) => column.name === "score"))
+        this.db.exec("ALTER TABLE jobs ADD COLUMN score INTEGER CHECK(score BETWEEN 0 AND 100)");
       const runs = this.db.prepare("PRAGMA table_info(runs)").all() as { name: string }[];
       if (runs.some((column) => column.name === "ready"))
         this.db.exec("ALTER TABLE runs RENAME COLUMN ready TO matches");
-      this.db.pragma("user_version = 2");
+      this.db.pragma("user_version = 3");
     })();
   }
   recoverInterrupted(): void {
@@ -84,15 +86,44 @@ export class Store {
     });
   }
   savePreferences(value: Preferences): void {
-    this.db
-      .prepare(
-        "INSERT INTO preferences(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",
+    const candidate = preferencesSchema.parse(value);
+    const previous = this.preferences();
+    this.db.transaction(() => {
+      if (
+        candidate.profile !== previous.profile ||
+        JSON.stringify(candidate.resume) !== JSON.stringify(previous.resume)
       )
-      .run(JSON.stringify(preferencesSchema.parse(value)));
+        this.db.prepare("DELETE FROM resume_document WHERE id=1").run();
+      this.db
+        .prepare(
+          "INSERT INTO preferences(id,value) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",
+        )
+        .run(JSON.stringify(candidate));
+    })();
+  }
+  hasResumeDocument(): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM resume_document WHERE id=1").get());
+  }
+  resumeDocument(): Buffer | null {
+    const row = this.db.prepare("SELECT pdf FROM resume_document WHERE id=1").get() as
+      { pdf: Buffer } | undefined;
+    return row?.pdf ?? null;
+  }
+  replaceResume(preferences: Preferences, pdf: Buffer): void {
+    this.db.transaction(() => {
+      this.savePreferences(preferences);
+      this.db
+        .prepare(
+          "INSERT INTO resume_document(id,pdf) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET pdf=excluded.pdf",
+        )
+        .run(pdf);
+    })();
   }
   totals(): Workspace["totals"] {
     const rows = this.db
-      .prepare("SELECT status, count(*) AS count FROM jobs GROUP BY status")
+      .prepare(
+        "SELECT status, count(*) AS count FROM jobs WHERE assessment IN ('match','review') GROUP BY status",
+      )
       .all() as { status: JobStatus; count: number }[];
     const count = (statuses: readonly JobStatus[]) =>
       rows.filter((r) => statuses.includes(r.status)).reduce((sum, r) => sum + r.count, 0);
@@ -105,14 +136,20 @@ export class Store {
           }
         ).count,
       ),
-      review: count(["review"]),
+      review: Number(
+        (
+          this.db.prepare("SELECT count(*) AS count FROM jobs WHERE assessment='review'").get() as {
+            count: number;
+          }
+        ).count,
+      ),
       applications: count(applicationStatuses),
       interviewing: count(["interviewing"]),
       offers: count(["offer", "accepted"]),
     };
   }
   list(query: { q: string; status: string; applications: boolean; page: number }): JobList {
-    const clauses: string[] = [];
+    const clauses: string[] = ["assessment IN ('match','review')"];
     const values: (string | number)[] = [];
     if (query.applications)
       clauses.push(
@@ -162,12 +199,12 @@ export class Store {
   }
   assess(
     id: number,
-    value: Pick<Job, "description" | "assessment" | "reason" | "status">,
+    value: Pick<Job, "description" | "assessment" | "score" | "reason" | "status">,
   ): boolean {
     return (
       this.db
         .prepare(
-          "UPDATE jobs SET description=@description,assessment=@assessment,reason=@reason,status=@status,updatedAt=@now WHERE id=@id AND status='new'",
+          "UPDATE jobs SET description=@description,assessment=@assessment,score=@score,reason=@reason,status=@status,updatedAt=@now WHERE id=@id AND status='new'",
         )
         .run({ ...value, id, now: new Date().toISOString() }).changes === 1
     );
@@ -183,7 +220,9 @@ export class Store {
     return this.db.prepare("DELETE FROM jobs WHERE id=?").run(id).changes === 1;
   }
   allJobs(): Job[] {
-    return this.db.prepare("SELECT * FROM jobs ORDER BY id").all() as Job[];
+    return this.db
+      .prepare("SELECT * FROM jobs WHERE assessment IN ('match','review') ORDER BY id")
+      .all() as Job[];
   }
   runs(): SearchRun[] {
     return this.db.prepare("SELECT * FROM runs ORDER BY id DESC LIMIT 50").all() as SearchRun[];

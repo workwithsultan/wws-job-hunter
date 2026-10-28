@@ -139,7 +139,11 @@ export function SearchLogs({
                         {runStatusLabels[run.status]}
                       </span>
                     </td>
-                    <td>{run.trigger === "schedule" ? "Scheduled" : "Manual"}</td>
+                    <td>
+                      <span className={"badge trigger-" + run.trigger}>
+                        {run.trigger === "schedule" ? "Scheduled" : "Manual"}
+                      </span>
+                    </td>
                     <td className="log-results">
                       <span>
                         {run.added.toLocaleString()} added · {run.matches.toLocaleString()} matches

@@ -1,3 +1,4 @@
+import { resumeUploadSchema, resumeLimits, hasPdfHeader } from "../shared/resume.js";
 import { assessmentLabel } from "../shared/assessment.js";
 import Fastify, { type FastifyReply } from "fastify";
 import helmet from "@fastify/helmet";
@@ -14,6 +15,7 @@ import {
   jobUpdateSchema,
   providerKeySchema,
   statusSchema,
+  statusLabels,
 } from "../shared/model.js";
 import { searchBudget } from "../shared/budget.js";
 import { keyId } from "./config.js";
@@ -89,6 +91,7 @@ export function buildApp(
     });
   });
   app.get("/api/workspace", async () => ({
+    resumeAvailable: store.hasResumeDocument(),
     lastRun: store.runs()[0] ?? null,
     preferences: store.preferences(),
     connections: config.connectionStatus(),
@@ -110,7 +113,9 @@ export function buildApp(
   app.get("/api/jobs/:id", async (request, reply) => {
     const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
     const job = store.job(id);
-    return job ?? reply.code(404).send({ error: "This job is no longer in your workspace." });
+    return job && (job.assessment === "match" || job.assessment === "review")
+      ? job
+      : reply.code(404).send({ error: "This job is no longer in your workspace." });
   });
   app.put("/api/jobs/:id", async (request, reply) => {
     const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
@@ -140,6 +145,43 @@ export function buildApp(
     runner.reschedule();
     return { ok: true };
   };
+  app.get("/api/resume", async (_request, reply) => {
+    const pdf = store.resumeDocument();
+    if (!pdf)
+      return reply.code(404).send({ error: "Upload your resume again to enable PDF preview." });
+    return reply
+      .type("application/pdf")
+      .header("Content-Disposition", 'inline; filename="resume.pdf"')
+      .send(pdf);
+  });
+  app.put(
+    "/api/resume",
+    { bodyLimit: Math.ceil(resumeLimits.bytes / 3) * 4 + 100000 },
+    async (request, reply) => {
+      if (runner.running || runner.updatingConnections)
+        return reply.code(409).send({
+          error: "Wait for the current search or connection update before replacing your resume.",
+        });
+      const value = resumeUploadSchema.parse(request.body);
+      const pdf = Buffer.from(value.pdf, "base64");
+      if (
+        pdf.length > resumeLimits.bytes ||
+        !hasPdfHeader(pdf) ||
+        pdf.toString("base64") !== value.pdf
+      )
+        return reply.code(400).send({ error: "Choose a valid PDF no larger than 10 MB." });
+      store.replaceResume(
+        preferencesSchema.parse({
+          ...store.preferences(),
+          profile: value.profile,
+          resume: value.resume,
+        }),
+        pdf,
+      );
+      runner.reschedule();
+      return { ok: true };
+    },
+  );
   app.put("/api/preferences", async (request, reply) => savePreferences(request.body, reply));
   app.patch("/api/preferences/profile", async (request, reply) =>
     savePreferences(
@@ -332,8 +374,9 @@ export function buildApp(
           job.url,
           job.source,
           assessmentLabel(job.assessment),
+          job.score,
           job.reason,
-          job.status,
+          statusLabels[job.status],
           job.notes,
           job.createdAt,
         ]
@@ -343,7 +386,11 @@ export function buildApp(
     return reply
       .header("Content-Type", "text/csv; charset=utf-8")
       .header("Content-Disposition", 'attachment; filename="job-hunter.csv"')
-      .send(["Title,URL,Source,Assessment,Reason,Status,Notes,Added", ...records].join("\r\n"));
+      .send(
+        ["Title,URL,Source,Assessment,Score (%),Reason,Status,Notes,Added", ...records].join(
+          "\r\n",
+        ),
+      );
   });
   const publicDir = resolve(root, "public");
   if (existsSync(resolve(publicDir, "index.html"))) {

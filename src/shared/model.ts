@@ -4,12 +4,12 @@ import { resumeMetadataSchema } from "./resume.js";
 import { countrySchema, workTypeSchema, defaultSearchScope } from "./search-scope.js";
 export const statusLabels = {
   new: "New",
-  ready: "Ready to apply",
+  ready: "Need to apply",
   review: "Needs review",
   not_a_fit: "Not a fit",
   applied: "Applied",
-  interviewing: "Interviewing",
-  offer: "Offer",
+  interviewing: "Interviewed",
+  offer: "Offered",
   accepted: "Accepted",
   rejected: "Rejected",
   withdrawn: "Withdrawn",
@@ -35,6 +35,9 @@ export const applicationStatuses: readonly JobStatus[] = [
   "rejected",
   "withdrawn",
 ];
+export const visibleJobStatuses = Object.entries(statusLabels)
+  .filter(([key]) => key !== "new" && key !== "not_a_fit")
+  .map(([value, label]) => ({ value, label }));
 export const sources = {
   "boards.greenhouse.io": "Greenhouse",
   "jobs.lever.co": "Lever",
@@ -111,6 +114,7 @@ export interface Job {
   snippet: string;
   description: string;
   assessment: Assessment | null;
+  score: number | null;
   reason: string;
   status: JobStatus;
   notes: string;
@@ -167,6 +171,7 @@ export interface SerpQuota {
   checkedAt: string;
 }
 export interface Workspace {
+  resumeAvailable: boolean;
   lastRun: SearchRun | null;
   preferences: Preferences;
   connections: Connections;
@@ -188,7 +193,7 @@ export interface JobList {
   pages: number;
 }
 export const jobUpdateSchema = z
-  .object({ status: statusSchema, notes: z.string().max(12000) })
+  .object({ status: statusSchema.exclude(["new", "not_a_fit"]), notes: z.string().max(12000) })
   .strict();
 export const providerKeySchema = z
   .object({
