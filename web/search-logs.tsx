@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { runStatusLabels, type RunList } from "../src/shared/model";
+import { runDuration } from "./log-format";
 import { api } from "./api";
 import { Alert, Busy, Choice, PendingLabel } from "./ui";
 
@@ -66,15 +67,12 @@ export function SearchLogs({
     next.set("page", String(value));
     setParams(next);
   };
-  const timestamp = new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "medium",
-    timeZone: timezone,
-  });
+  const date = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone: timezone });
+  const time = new Intl.DateTimeFormat(undefined, { timeStyle: "medium", timeZone: timezone });
   return (
     <div className="collection search-logs">
       <div className="collection-heading">
-        <h2>Search history</h2>
+        <h2>History</h2>
         <button type="button" disabled={loading} onClick={() => setRetry((value) => value + 1)}>
           <RefreshCw aria-hidden="true" className={loading ? "spinner" : undefined} />
           <PendingLabel pending={loading} idle="Refresh" busy="Refreshing…" />
@@ -127,13 +125,13 @@ export function SearchLogs({
                   <tr key={run.id}>
                     <td>
                       <time dateTime={run.startedAt}>
-                        {timestamp.format(new Date(run.startedAt))}
+                        <span>{date.format(new Date(run.startedAt))}</span>
+                        <span className="log-clock">{time.format(new Date(run.startedAt))}</span>
                       </time>
                       <span className="log-meta">
                         Run #{run.id}
-                        {run.finishedAt
-                          ? ` · ${Math.max(0, Math.round((Date.parse(run.finishedAt) - Date.parse(run.startedAt)) / 1000)).toLocaleString()}s`
-                          : " · In progress"}
+                        {" · "}
+                        {runDuration(run)}
                       </span>
                     </td>
                     <td>

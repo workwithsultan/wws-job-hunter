@@ -8,7 +8,7 @@ import { api, ApiError } from "./api";
 import { Alert, Choice, Field, Emoji, PendingLabel, useConfirm, useDraftWarning } from "./ui";
 
 export function useQuota(keys: SavedKey[], active: boolean, running: boolean) {
-  const [quota, setQuota] = useState<SerpQuota | null>(null);
+  const [snapshot, setSnapshot] = useState<{ signature: string; quota: SerpQuota } | null>(null);
   const [failure, setFailure] = useState("");
   const [loading, setLoading] = useState(false);
   const requestSerial = useRef(0);
@@ -17,23 +17,22 @@ export function useQuota(keys: SavedKey[], active: boolean, running: boolean) {
     async (refresh = true) => {
       const request = ++requestSerial.current;
       if (!signature) {
-        setQuota(null);
+        setSnapshot(null);
         setFailure("");
         setLoading(false);
         return;
       }
       setLoading(true);
-      setQuota(null);
       try {
         const result = await api<SerpQuota>(
           "/api/serpapi/quota" + (refresh ? "?refresh=true" : ""),
         );
         if (request !== requestSerial.current) return;
-        setQuota(result);
+        setSnapshot({ signature, quota: result });
         setFailure("");
       } catch (error) {
         if (request === requestSerial.current) {
-          setQuota(null);
+          setSnapshot(null);
           setFailure(error instanceof Error ? error.message : "Quota could not be loaded.");
         }
       } finally {
@@ -49,6 +48,7 @@ export function useQuota(keys: SavedKey[], active: boolean, running: boolean) {
       setLoading(false);
     };
   }, [signature, active, running, load]);
+  const quota = snapshot?.signature === signature ? snapshot.quota : null;
   return { quota, failure, loading, load };
 }
 export function ProviderSettings({
@@ -70,7 +70,10 @@ export function ProviderSettings({
   const [modelsError, setModelsError] = useState("");
   const [busy, setBusy] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [failure, setFailure] = useState("");
+  const [failure, setFailure] = useState<{
+    provider: "openai" | "serpapi";
+    message: string;
+  } | null>(null);
   const confirm = useConfirm();
   const interaction = useInteractionState();
   const {
@@ -138,7 +141,7 @@ export function ProviderSettings({
     )
       return;
     setBusy(provider);
-    setFailure("");
+    setFailure(null);
     setErrors((v) => ({ ...v, [provider]: "" }));
     try {
       await api(
@@ -157,7 +160,11 @@ export function ProviderSettings({
     } catch (error) {
       if (error instanceof ApiError && error.fields.key)
         setErrors((v) => ({ ...v, [provider]: error.fields.key! }));
-      else setFailure(error instanceof Error ? error.message : "The key could not be connected.");
+      else
+        setFailure({
+          provider,
+          message: error instanceof Error ? error.message : "The key could not be connected.",
+        });
     } finally {
       setBusy("");
     }
@@ -206,7 +213,7 @@ export function ProviderSettings({
     )
       return;
     setBusy(provider);
-    setFailure("");
+    setFailure(null);
     try {
       await api(
         provider === "openai" ? "/api/openai/key" : "/api/serpapi/keys/" + key!.id,
@@ -215,7 +222,10 @@ export function ProviderSettings({
       );
       await reload();
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : "The key could not be removed.");
+      setFailure({
+        provider,
+        message: error instanceof Error ? error.message : "The key could not be removed.",
+      });
     } finally {
       setBusy("");
     }
@@ -223,11 +233,11 @@ export function ProviderSettings({
   const budget = searchBudget(quota, workspace.preferences);
   const locked = Boolean(busy) || workspace.running || interaction.writing;
   return (
-    <section className="connections-section" aria-label="Provider connections">
-      {failure && <Alert>{failure}</Alert>}
-      <div className="provider-section">
+    <>
+      <section className="provider-section provider-openai" aria-labelledby="openai-heading">
+        {failure?.provider === "openai" && <Alert>{failure.message}</Alert>}
         <div className="provider-heading">
-          <h2>
+          <h2 id="openai-heading">
             <Emoji>🤖</Emoji>OpenAI
           </h2>
           {workspace.connections.openai && (
@@ -336,10 +346,11 @@ export function ProviderSettings({
             {modelsError}
           </Alert>
         )}
-      </div>
-      <div className="provider-section">
+      </section>
+      <section className="provider-section provider-serpapi" aria-labelledby="serpapi-heading">
+        {failure?.provider === "serpapi" && <Alert>{failure.message}</Alert>}
         <div className="provider-heading">
-          <h2>
+          <h2 id="serpapi-heading">
             <Emoji>🔑</Emoji>SerpApi keys
           </h2>
           {workspace.connections.serpapiKeys.length > 0 && (
@@ -364,10 +375,10 @@ export function ProviderSettings({
                     <code>•••• {key.lastFour}</code>
                     {account && (
                       <span className="key-quota">
-                        {account.remaining.toLocaleString()} searches left · {account.plan}
+                        {account.remaining.toLocaleString()} requests left · {account.plan}
                       </span>
                     )}
-                    {quotaLoading && (
+                    {quotaLoading && !account && (
                       <span className="key-quota" role="status">
                         Checking quota…
                       </span>
@@ -399,11 +410,11 @@ export function ProviderSettings({
         {quota?.complete && (
           <div className="quota-summary">
             <span>
-              <strong>{budget.remaining!.toLocaleString()}</strong> searches remaining
+              <strong>{budget.remaining!.toLocaleString()}</strong> requests remaining
             </span>
             {budget.dailyTarget !== null ? (
               <span>
-                <strong>{budget.dailyTarget.toLocaleString()}</strong> / day target
+                <strong>{budget.dailyTarget.toLocaleString()}</strong> requests / day target
               </span>
             ) : (
               <span>No renewal date reported</span>
@@ -416,7 +427,15 @@ export function ProviderSettings({
             noValidate
             onSubmit={(event) => void connect(event, "serpapi")}
           >
-            <Field id="serpapi-key" label="SerpApi key (required)" error={errors.serpapi}>
+            <Field
+              id="serpapi-key"
+              label={
+                workspace.connections.serpapiKeys.length
+                  ? "Additional SerpApi key (optional)"
+                  : "SerpApi key (required)"
+              }
+              error={errors.serpapi}
+            >
               <input
                 type="password"
                 autoComplete="new-password"
@@ -461,7 +480,7 @@ export function ProviderSettings({
             </div>
           </form>
         )}
-      </div>
-    </section>
+      </section>
+    </>
   );
 }

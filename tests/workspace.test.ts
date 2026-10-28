@@ -1,3 +1,4 @@
+import { runDuration } from "../web/log-format.js";
 import { countryEmoji } from "../src/shared/emoji.js";
 import { assessmentSchema, assessmentLabel, assessmentStatus } from "../src/shared/assessment.js";
 import { test } from "node:test";
@@ -644,4 +645,33 @@ test("search logs expose paginated history without creating runs and validate fi
     await item.runner.stop();
     item.cleanup();
   }
+});
+
+test("interrupted history never presents an unfinished timestamp as an active search", () => {
+  const startedAt = "2026-10-28T10:00:00Z";
+  assert.equal(
+    runDuration({ startedAt, finishedAt: null, status: "interrupted" }),
+    "Finish time unavailable",
+  );
+  assert.equal(
+    runDuration({ startedAt, finishedAt: null, status: "failed" }),
+    "Finish time unavailable",
+  );
+  assert.equal(runDuration({ startedAt, finishedAt: null, status: "running" }), "In progress");
+});
+
+test("search durations remain readable for short and long runs", () => {
+  const startedAt = "2026-10-28T10:00:00Z";
+  assert.equal(
+    runDuration({ startedAt, finishedAt: "2026-10-28T10:00:18Z", status: "failed" }),
+    "18s",
+  );
+  assert.equal(
+    runDuration({ startedAt, finishedAt: "2026-10-28T10:03:12Z", status: "completed" }),
+    "3m 12s",
+  );
+  assert.equal(
+    runDuration({ startedAt, finishedAt: "2026-10-28T11:02:00Z", status: "completed" }),
+    "1h 2m",
+  );
 });

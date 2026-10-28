@@ -28,6 +28,8 @@ Save buttons remain disabled until the form has valid changes. Reverting edits d
 
 Country flags and contextual emoji use the device’s native emoji font, including Apple emoji on Apple devices. Country names remain readable and keyboard searchable. The interface supports light, dark, and system appearance.
 
+All pages share the same content width and responsive spacing. Settings groups resume and OpenAI controls beside SerpApi on wide screens. On smaller screens, job assessments move beneath titles and quota account details collapse while the remaining balance and next reset stay visible. Quota refresh preserves the known layout, marks loading, and clears balances when verification fails. Search-log durations use readable units; interrupted runs without a finish timestamp are explicitly identified. Dialogs preserve drafts on cancellation and return focus to the relevant control.
+
 Search logs are ordered newest first, with status filters and 25 rows per page. Running searches update automatically while the app is open. Starting a search opens its log view. Succeeded means the run completed; Failed reports a search error, and Interrupted identifies a run stopped by a server shutdown. Filter and page selections stay in the URL. Refresh reloads history without starting a search. Setup or connection errors before a run starts remain visible where they occur and do not create phantom history records.
 
 Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Railway, Telegram, and a separate database server are not required. Existing historical spreadsheets are not imported or modified.

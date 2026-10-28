@@ -141,6 +141,10 @@ function App() {
     document.title =
       (nav.find((item) => item.path === location.pathname)?.label ?? "Job Hunter") +
       " · Job Hunter";
+    const frame = requestAnimationFrame(() =>
+      document.getElementById("main")?.focus({ preventScroll: true }),
+    );
+    return () => cancelAnimationFrame(frame);
   }, [location.pathname, navigate]);
   useEffect(() => {
     const wide = window.matchMedia("(min-width: 1024px)");
@@ -173,7 +177,7 @@ function App() {
       if (!quota.complete)
         throw new Error("Check your SerpApi connection in Settings before searching.");
       if (!budget.remaining)
-        throw new Error("No SerpApi searches remain. Check your accounts in Settings.");
+        throw new Error("No SerpApi requests remain. Check your accounts in Settings.");
       if (!quota.accounts.some((account) => account.remaining > 0 && account.hourlyRemaining !== 0))
         throw new Error("The SerpApi hourly limit has been reached. Try again after it resets.");
       if (
@@ -186,7 +190,7 @@ function App() {
             { label: "Work type", value: workTypes[workspace.preferences.workType] },
             { label: "AI model", value: workspace.connections.model },
           ],
-          description: `Estimated usage: ${budget.searchesPerRun} SerpApi searches before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} New jobs will be matched against your resume using OpenAI.`,
+          description: `Estimated usage: ${budget.searchesPerRun} SerpApi requests before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} New jobs will be matched against your resume using OpenAI.`,
           action: "Start search",
         }))
       )
@@ -213,10 +217,29 @@ function App() {
   );
   useEffect(() => {
     if (!location.hash) return;
-    const frame = requestAnimationFrame(() => {
-      document.getElementById(location.hash.slice(1))?.focus();
+    const main = document.getElementById("main");
+    if (!main) return;
+    const focus = () => {
+      const target = document.getElementById(location.hash.slice(1));
+      if (!target || target.matches(":disabled")) return;
+      const current = document.activeElement;
+      if (current === document.body || current === main || current === target) target.focus();
+      observer.disconnect();
+    };
+    const observer = new MutationObserver(focus);
+    observer.observe(main, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["disabled"],
     });
-    return () => cancelAnimationFrame(frame);
+    const frame = requestAnimationFrame(focus);
+    const timeout = setTimeout(() => observer.disconnect(), 10000);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timeout);
+      observer.disconnect();
+    };
   }, [location.pathname, location.hash]);
   const current = nav.find((item) => item.path === location.pathname);
   const incomplete = workspace ? Object.values(missingSetup(workspace)).some(Boolean) : true;
@@ -278,27 +301,34 @@ function App() {
                 </h1>
               </div>
               {workspace && (location.pathname === "/jobs" || location.pathname === "/search") && (
-                <button
-                  className="primary"
-                  ref={searchTrigger}
-                  disabled={
-                    workspace.running ||
-                    starting ||
-                    interaction.busy ||
-                    (!incomplete && interaction.dirty)
-                  }
-                  aria-describedby={
-                    !incomplete && interaction.dirty ? "search-draft-reason" : undefined
-                  }
-                  onClick={() => void start()}
-                >
-                  {workspace.running ? <Clock3 /> : <Play />}
-                  <PendingLabel
-                    pending={starting}
-                    busy="Preparing search…"
-                    idle={workspace.running ? "Searching…" : "Search jobs"}
-                  />
-                </button>
+                <div className="heading-actions">
+                  <button
+                    className="primary"
+                    ref={searchTrigger}
+                    disabled={
+                      workspace.running ||
+                      starting ||
+                      interaction.busy ||
+                      (!incomplete && interaction.dirty)
+                    }
+                    aria-describedby={
+                      !incomplete && interaction.dirty ? "search-draft-reason" : undefined
+                    }
+                    onClick={() => void start()}
+                  >
+                    {workspace.running ? <Clock3 /> : <Play />}
+                    <PendingLabel
+                      pending={starting}
+                      busy="Preparing search…"
+                      idle={workspace.running ? "Searching…" : "Search jobs"}
+                    />
+                  </button>
+                  {!incomplete && interaction.dirty && (
+                    <ActionHint label="Why search is unavailable">
+                      Save or cancel your changes before starting a search.
+                    </ActionHint>
+                  )}
+                </div>
               )}
             </div>
             {!incomplete && interaction.dirty && (
@@ -646,12 +676,23 @@ function JobsPage({
           </div>
         ) : (
           <>
-            <div className="table-scroll" aria-busy={loading}>
-              <table>
+            <div
+              className="table-scroll"
+              role="region"
+              aria-label={applications ? "Applications table" : "Jobs table"}
+              tabIndex={0}
+              aria-busy={loading}
+            >
+              <table className="jobs-table">
+                <caption className="sr-only">
+                  {applications ? "Saved applications" : "Saved job opportunities"}
+                </caption>
                 <thead>
                   <tr>
                     <th scope="col">Role</th>
-                    <th scope="col">Match</th>
+                    <th scope="col" className="assessment-cell">
+                      Match
+                    </th>
                     <th scope="col" className="desktop-cell">
                       Source
                     </th>
@@ -667,6 +708,8 @@ function JobsPage({
                       <td>
                         <Link
                           className="job-title"
+                          data-job-id={job.id}
+                          onClick={(event) => event.currentTarget.focus({ preventScroll: true })}
                           to={{
                             search: new URLSearchParams({
                               ...Object.fromEntries(params),
@@ -677,9 +720,24 @@ function JobsPage({
                           {job.title}
                           <ArrowUpRight aria-hidden="true" />
                         </Link>
-                        <span className="mobile-source">{sources[job.source]}</span>
+                        <span className="mobile-source">
+                          {sources[job.source]} ·{" "}
+                          <time dateTime={job.createdAt}>
+                            {new Date(job.createdAt).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </time>
+                        </span>
+                        <span
+                          className={
+                            "badge mobile-assessment assessment-" + (job.assessment ?? "pending")
+                          }
+                        >
+                          {assessmentLabel(job.assessment)}
+                        </span>
                       </td>
-                      <td>
+                      <td className="assessment-cell">
                         <span className={"badge assessment-" + (job.assessment ?? "pending")}>
                           {assessmentLabel(job.assessment)}
                         </span>
@@ -733,6 +791,10 @@ function JobsPage({
 function JobDetail({ reload }: { reload: () => Promise<void> }) {
   const [params, setParams] = useSearchParams();
   const id = params.get("job");
+  const returnJobId = useRef(id);
+  useEffect(() => {
+    if (id) returnJobId.current = id;
+  }, [id]);
   const [job, setJob] = useState<Job | null>(null);
   const [status, setStatus] = useState<JobStatus>("new");
   const [notes, setNotes] = useState("");
@@ -847,6 +909,17 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
   };
   return (
     <Modal
+      returnFocus={() =>
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const links = document.querySelectorAll<HTMLAnchorElement>(
+              ".page-content:not([hidden]) [data-job-id]",
+            );
+            const target = [...links].find((link) => link.dataset.jobId === returnJobId.current);
+            (target ?? document.getElementById("main"))?.focus({ preventScroll: true });
+          }),
+        )
+      }
       open={Boolean(id)}
       onClose={() => void close()}
       title={job?.title ?? "Job details"}
@@ -960,11 +1033,13 @@ function SearchPage({
   const {
     quota,
     failure: quotaError,
+    loading: quotaLoading,
     load: refreshQuota,
   } = useQuota(workspace.connections.serpapiKeys, active, workspace.running);
   const budget = searchBudget(quota, draft);
   useDraftWarning(dirty);
   useActivity(busy, "write");
+  useActivity(quotaLoading, "busy");
   useEffect(() => {
     if (!dirty || (!hasPending && !searchChanged(draft, workspace.preferences))) {
       if (draft !== workspace.preferences) setDraft(workspace.preferences);
@@ -1157,16 +1232,26 @@ function SearchPage({
               ))}
             </ul>
             <p className="site-summary">All sites are searched automatically.</p>
-            {quotaError && <Alert onRetry={() => void refreshQuota()}>{quotaError}</Alert>}
+            {quotaError && (
+              <Alert retrying={quotaLoading} onRetry={() => void refreshQuota()}>
+                {quotaError}
+              </Alert>
+            )}
             {budget.remaining !== null && (
               <div className="search-usage" role="status">
-                <span>{budget.remaining.toLocaleString()} searches remaining</span>
-                {budget.searchesPerRun !== null && <span>~{budget.searchesPerRun} / run</span>}
+                <span>
+                  {quotaLoading
+                    ? "Refreshing quota…"
+                    : `${budget.remaining.toLocaleString()} requests remaining`}
+                </span>
+                {budget.searchesPerRun !== null && (
+                  <span>~{budget.searchesPerRun} requests / search</span>
+                )}
               </div>
             )}
           </section>
           <section className="search-section">
-            <div className="section-heading">
+            <div className="schedule-heading">
               <h2>
                 <Emoji>🗓️</Emoji>Schedule
               </h2>
@@ -1376,83 +1461,93 @@ function SettingsPage({
   return (
     <>
       {failure && <Alert>{failure}</Alert>}
-      <form className="profile-form" onSubmit={(event) => void save(event)} noValidate>
-        <fieldset disabled={busy || workspace.running || readingResume || interaction.writing}>
-          <h2>
-            <Emoji>📄</Emoji>Resume
-          </h2>
-          <ResumeImport
-            key={resumeVersion}
-            active={active}
-            onReadingChange={setReadingResume}
-            disabled={busy || workspace.running || readingResume || interaction.writing}
-            hasProfile={Boolean(profile.trim())}
-            onApply={(value) => {
-              setProfile(value.text);
-              setResume({ name: value.name, pages: value.pages });
-              setSaved(false);
-            }}
-          />
-          {profile && (
-            <div className="resume-summary">
-              <div>
-                <FileText aria-hidden="true" />
+      <div className="settings-layout">
+        <form
+          aria-labelledby="resume-heading"
+          className="profile-form"
+          onSubmit={(event) => void save(event)}
+          noValidate
+        >
+          <fieldset disabled={busy || workspace.running || readingResume || interaction.writing}>
+            <h2 id="resume-heading">
+              <Emoji>📄</Emoji>Resume
+            </h2>
+            <ResumeImport
+              key={resumeVersion}
+              active={active}
+              onReadingChange={setReadingResume}
+              disabled={busy || workspace.running || readingResume || interaction.writing}
+              hasProfile={Boolean(profile.trim())}
+              onApply={(value) => {
+                setProfile(value.text);
+                setResume({ name: value.name, pages: value.pages });
+                setSaved(false);
+              }}
+            />
+            {profile && (
+              <div className="resume-summary">
                 <div>
-                  <strong>{resume?.name ?? "Saved profile text"}</strong>
-                  {resume && (
-                    <span>
-                      {resume.pages} {resume.pages === 1 ? "page" : "pages"}
-                    </span>
-                  )}
+                  <FileText aria-hidden="true" />
+                  <div>
+                    <strong>{resume?.name ?? "Saved profile text"}</strong>
+                    {resume && (
+                      <span>
+                        {resume.pages} {resume.pages === 1 ? "page" : "pages"}
+                      </span>
+                    )}
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  id="review-resume"
+                  onClick={() => {
+                    setReviewText(profile);
+                    setReviewOpen(true);
+                  }}
+                >
+                  Review text
+                </button>
               </div>
-              <button
-                type="button"
-                id="review-resume"
-                onClick={() => {
-                  setReviewText(profile);
-                  setReviewOpen(true);
-                }}
-              >
-                Review text
+            )}
+            <div className="form-actions">
+              <button className="primary" disabled={!dirty || !valid || busy}>
+                <PendingLabel pending={busy} idle="Save profile" busy="Saving…" />
               </button>
+              {dirty && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResumeVersion((value) => value + 1);
+                    setProfile(workspace.preferences.profile);
+                    setResume(workspace.preferences.resume);
+                    setBaseline(workspace.preferences);
+                    requestAnimationFrame(() =>
+                      document
+                        .getElementById(
+                          workspace.preferences.profile ? "review-resume" : "settings-resume",
+                        )
+                        ?.focus(),
+                    );
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+              {saved && (
+                <span className="saved" role="status">
+                  <Check />
+                  Saved
+                </span>
+              )}
             </div>
-          )}
-          <div className="form-actions">
-            <button className="primary" disabled={!dirty || !valid || busy}>
-              <PendingLabel pending={busy} idle="Save profile" busy="Saving…" />
-            </button>
-            {dirty && (
-              <button
-                type="button"
-                onClick={() => {
-                  setResumeVersion((value) => value + 1);
-                  setProfile(workspace.preferences.profile);
-                  setResume(workspace.preferences.resume);
-                  setBaseline(workspace.preferences);
-                  requestAnimationFrame(() =>
-                    document
-                      .getElementById(
-                        workspace.preferences.profile ? "review-resume" : "settings-resume",
-                      )
-                      ?.focus(),
-                  );
-                }}
-              >
-                Cancel
-              </button>
-            )}
-            {saved && (
-              <span className="saved" role="status">
-                <Check />
-                Saved
-              </span>
-            )}
-          </div>
-        </fieldset>
-      </form>
-      <ProviderSettings workspace={workspace} reload={reload} active={active} />
+          </fieldset>
+        </form>
+        <ProviderSettings workspace={workspace} reload={reload} active={active} />
+      </div>
       <Modal
+        returnFocus={() =>
+          requestAnimationFrame(() => document.getElementById("review-resume")?.focus())
+        }
         open={active && reviewOpen}
         title="Resume text"
         onClose={() => {
