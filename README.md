@@ -37,9 +37,15 @@ JavaScript-only, blocked, inaccessible, or unsupported descriptions are marked *
 
 Scheduled searches are off by default. Enable them only after setup. The server must remain running; missed schedules are not replayed. Stopping the server cancels active provider requests and keeps already-saved jobs. A restart marks a search left by an unexpected shutdown as interrupted. Editing search settings or credentials is blocked during an active run.
 
+## Resume PDF
+
+In Settings → Profile, choose a resume PDF up to 10 MB and 20 pages. The browser reads it locally using [Mozilla PDF.js](https://mozilla.github.io/pdf.js/). PDF files are not uploaded to the app server, sent to OpenAI, or stored. Confirm before placing extracted text into the profile draft, then review and edit it before Save profile. Existing profile text is replaced only after confirmation; Cancel leaves it unchanged. The page shows the imported filename and page count. Open **Review text** to inspect or correct the extracted content; the text editor is kept inside that dialog. Search already holds your target titles, country, and work type.
+
+The profile accepts up to 12,000 characters; longer PDFs are rejected rather than truncated. Scanned resumes require OCR first. Locked, malformed, empty, or unreadable files receive an explicit correction. Pages without readable text are identified before import. Formatting and reading order can differ, especially with columns, so review the extracted content. Leaving Settings cancels an import still being read. Saved profile text, source filename, and page count are backed up in SQLite. Profile text is sent to OpenAI only when job scoring runs.
+
 ## Provider quota
 
-Connect several SerpApi keys when they belong to separate accounts. Keys for the same account are rejected to avoid counting the same balance twice. Account balances and reset dates come from the [SerpApi Account API](https://serpapi.com/account-api), which does not consume search credits. Refresh reloads them; each run verifies them again.
+Use **Add key** repeatedly to connect several SerpApi keys from separate accounts, including three accounts as in the original system. The input remains visible after each addition. Keys for the same account are rejected to avoid counting the same balance twice. Account balances and reset dates come from the [SerpApi Account API](https://serpapi.com/account-api), which does not consume search credits. Refresh reloads them; each run verifies them again.
 
 SerpApi has a monthly search allowance. The app calculates a daily planning target from each account's remaining searches and days until renewal, then adjusts search depth automatically. This is an estimate, not a provider daily limit or a hard daily spending cap. The confirmation shows estimated requests; retries can use additional credits. If a renewal date is unavailable, no daily target is invented. Unknown quota or exhausted accounts block search explicitly.
 

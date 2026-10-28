@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Plus, Trash2, RefreshCw, Check } from "lucide-react";
+import { Trash2, RefreshCw, Check } from "lucide-react";
 import type { SavedKey, SerpQuota, Workspace } from "../src/shared/model";
 import { providerKeySchema } from "../src/shared/model";
 import { searchBudget } from "../src/shared/budget";
@@ -51,7 +51,6 @@ export function ProviderSettings({
   const [openaiKey, setOpenaiKey] = useState("");
   const [serpapiKey, setSerpapiKey] = useState("");
   const [editOpenai, setEditOpenai] = useState(false);
-  const [addSerp, setAddSerp] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState("");
@@ -127,7 +126,6 @@ export function ProviderSettings({
         setEditOpenai(false);
       } else {
         setSerpapiKey("");
-        setAddSerp(false);
       }
       await reload();
       if (provider === "openai") await loadModels(true);
@@ -274,7 +272,7 @@ export function ProviderSettings({
       </div>
       <div className="provider-section">
         <div className="provider-heading">
-          <h2>SerpApi</h2>
+          <h2>SerpApi keys</h2>
           {workspace.connections.serpapiKeys.length > 0 && (
             <button
               className="ghost"
@@ -334,13 +332,13 @@ export function ProviderSettings({
             )}
           </div>
         )}
-        {!workspace.connections.serpapi || addSerp ? (
+        {workspace.connections.serpapiKeys.length < 10 && (
           <form
             className="connect-form"
             noValidate
             onSubmit={(event) => void connect(event, "serpapi")}
           >
-            <Field id="serpapi-key" label="SerpApi key (required)" error={errors.serpapi}>
+            <Field id="serpapi-key" label="Add API key (required)" error={errors.serpapi}>
               <input
                 type="password"
                 autoComplete="new-password"
@@ -358,15 +356,14 @@ export function ProviderSettings({
                 className="primary"
                 disabled={locked || !providerKeySchema.safeParse({ key: serpapiKey }).success}
               >
-                {busy === "serpapi" ? "Connecting…" : "Connect"}
+                {busy === "serpapi" ? "Connecting…" : "Add key"}
               </button>
-              {workspace.connections.serpapi && (
+              {serpapiKey && (
                 <button
                   type="button"
                   disabled={locked}
                   onClick={() => {
                     setSerpapiKey("");
-                    setAddSerp(false);
                     setErrors((v) => ({ ...v, serpapi: "" }));
                   }}
                 >
@@ -375,15 +372,6 @@ export function ProviderSettings({
               )}
             </div>
           </form>
-        ) : (
-          <button
-            className="align-start"
-            disabled={locked || workspace.connections.serpapiKeys.length >= 10}
-            onClick={() => setAddSerp(true)}
-          >
-            <Plus />
-            Add key
-          </button>
         )}
       </div>
     </section>

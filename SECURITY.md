@@ -6,6 +6,8 @@ The server checks request hosts and origins, rejects cross-site changes, and req
 
 API keys are plaintext on the server in `.env.local`, not encrypted. The local operating system account is the access boundary. A browser or application running with your own local account may access this local app; this is not a multi-user isolation system.
 
+Resume PDFs are decoded in a browser worker using local PDF.js assets. The original file never reaches the server and is not retained. File size, page count, extracted-text length, and processing time are bounded. Parsing errors leave the existing profile untouched. Only confirmed text enters an unsaved draft; Save profile persists it with the source filename and page count through the existing local preferences API. Extracted text may contain personal information, so review it before saving or running scoring.
+
 Job text is untrusted. It is displayed as text and passed to the scorer as data, not executed or rendered as HTML. Extracted URLs must use HTTPS and supported ATS hosts. Redirects outside supported job sites are rejected. Job content is limited in size; database queries use bound parameters. CSV text beginning with spreadsheet formula characters is escaped.
 
 Your profile is sent to OpenAI when scoring runs. Search keywords are sent to SerpApi. Connecting an OpenAI key retrieves available models. Connecting or refreshing SerpApi keys reads account quota. Saved connections also load this metadata when Settings is opened. These requests do not start job discovery or scoring. Raw provider account responses, email addresses, and keys are not returned to the browser. Searches verify quota before proceeding. Use provider-side limits appropriate to your budget.

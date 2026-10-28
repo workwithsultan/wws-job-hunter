@@ -1,12 +1,19 @@
 import { test } from "node:test";
 import Database from "better-sqlite3";
+import {
+  resumeMetadataSchema,
+  resumeFileError,
+  hasPdfHeader,
+  readableResume,
+  resumeLimits,
+} from "../src/shared/resume.js";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Store } from "../src/server/store.js";
 import { Configuration } from "../src/server/config.js";
-import { searchBudget, remainingDays } from "../src/shared/budget.js";
+import { searchBudget, remainingDays, dailySearchTarget } from "../src/shared/budget.js";
 import { isScoringModel } from "../src/server/providers.js";
 import { Runner } from "../src/server/runner.js";
 import { buildApp } from "../src/server/app.js";
@@ -374,7 +381,8 @@ test("existing preferences retain US remote behavior when upgraded", () => {
   try {
     const first = new Store(path);
     first.close();
-    const { country, workType, ...previous } = defaultPreferences;
+    const { country, workType, resume, ...previous } = defaultPreferences;
+    assert.equal(resume, null);
     assert.equal(country, "us");
     assert.equal(workType, "remote");
     const db = new Database(path);
@@ -394,4 +402,58 @@ test("existing preferences retain US remote behavior when upgraded", () => {
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("resume selection rejects unsupported, empty, and oversized files before reading", () => {
+  assert.equal(resumeFileError({ name: "Resume.PDF", size: 1024 }), "");
+  assert.equal(resumeFileError({ name: "Resume.docx", size: 1024 }), "Choose a PDF file.");
+  assert.match(resumeFileError({ name: "Resume.pdf", size: 0 }), /empty/);
+  assert.match(resumeFileError({ name: "Resume.pdf", size: resumeLimits.bytes + 1 }), /10 MB/);
+  assert.equal(hasPdfHeader(new TextEncoder().encode("%PDF-1.7")), true);
+  assert.equal(hasPdfHeader(new TextEncoder().encode("Not a PDF")), false);
+  assert.equal(readableResume(""), false);
+  assert.equal(readableResume("   "), false);
+  assert.equal(readableResume("Operations experience"), true);
+  assert.equal(readableResume("\uFFFD".repeat(30)), false);
+});
+
+test("PDF worker policy permits only local scripts and leaves provider state untouched", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, resolve("."), 8790);
+  try {
+    const response = await app.inject({
+      url: "/api/workspace",
+      headers: { host: "127.0.0.1:8790" },
+    });
+    assert.match(String(response.headers["content-security-policy"]), /worker-src 'self'/);
+    assert.doesNotMatch(String(response.headers["content-security-policy"]), /unsafe-eval|blob:/);
+    assert.equal(response.json().preferences.profile, "");
+  } finally {
+    await app.close();
+    await item.runner.stop();
+    item.cleanup();
+  }
+});
+
+test("daily search target scales from one balance to three balances", () => {
+  const now = new Date("2026-10-28T05:00:00Z");
+  const balance = { remaining: 90, renewalDate: "2026-11-27" };
+  assert.equal(dailySearchTarget([balance], "Asia/Jakarta", now), 3);
+  assert.equal(dailySearchTarget([balance, balance, balance], "Asia/Jakarta", now), 9);
+  assert.equal(dailySearchTarget([], "Asia/Jakarta", now), null);
+  assert.equal(
+    dailySearchTarget([{ remaining: 90, renewalDate: null }], "Asia/Jakarta", now),
+    null,
+  );
+});
+
+test("resume metadata accepts only a PDF filename and bounded page count", () => {
+  assert.equal(resumeMetadataSchema.safeParse({ name: "Resume.pdf", pages: 3 }).success, true);
+  assert.equal(resumeMetadataSchema.safeParse({ name: "Resume.docx", pages: 3 }).success, false);
+  assert.equal(resumeMetadataSchema.safeParse({ name: "Resume.pdf", pages: 21 }).success, false);
+  assert.equal(
+    preferencesSchema.safeParse({ ...defaultPreferences, resume: { name: "Resume.pdf", pages: 3 } })
+      .success,
+    false,
+  );
 });

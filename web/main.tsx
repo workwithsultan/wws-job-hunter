@@ -45,6 +45,8 @@ import { countries } from "../src/shared/countries";
 import { workTypes } from "../src/shared/search-scope";
 import { searchChanged, searchValid, profileValid } from "./form-state";
 import { searchBudget } from "../src/shared/budget";
+import type { ResumeMetadata } from "../src/shared/resume";
+import { ResumeImport } from "./resume-import";
 import { ProviderSettings, useQuota } from "./providers";
 import { api, ApiError, dateText } from "./api";
 import {
@@ -825,6 +827,7 @@ function SearchPage({
     const candidate = {
       ...draft,
       profile: workspace.preferences.profile,
+      resume: workspace.preferences.resume,
       threshold: workspace.preferences.threshold,
     };
     const result = preferencesSchema.safeParse(candidate);
@@ -1132,19 +1135,28 @@ function SettingsPage({
   active: boolean;
 }) {
   const [profile, setProfile] = useState(workspace.preferences.profile);
+  const [resume, setResume] = useState<ResumeMetadata | null>(workspace.preferences.resume);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewText, setReviewText] = useState("");
   const [threshold, setThreshold] = useState(String(workspace.preferences.threshold));
   const [baseline, setBaseline] = useState(workspace.preferences);
-  const dirty = profile !== baseline.profile || threshold !== String(baseline.threshold);
+  const dirty =
+    profile !== baseline.profile ||
+    threshold !== String(baseline.threshold) ||
+    JSON.stringify(resume) !== JSON.stringify(baseline.resume);
   const valid = profileValid(profile, threshold);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const [readingResume, setReadingResume] = useState(false);
+  const [resumeVersion, setResumeVersion] = useState(0);
   const [saved, setSaved] = useState(false);
-  useDraftWarning(dirty);
+  useDraftWarning(dirty || (reviewOpen && reviewText !== profile));
   useEffect(() => {
     if (!dirty) {
       setBaseline(workspace.preferences);
       setProfile(workspace.preferences.profile);
+      setResume(workspace.preferences.resume);
       setThreshold(String(workspace.preferences.threshold));
     }
   }, [workspace.preferences, dirty]);
@@ -1152,8 +1164,7 @@ function SettingsPage({
     event.preventDefault();
     if (busy || !dirty) return;
     const fields: Record<string, string> = {};
-    if (profile.trim().length < 10)
-      fields.profile = "Describe your experience and requirements in at least 10 characters.";
+    if (profile.trim().length < 10) fields.profile = "Upload a readable resume PDF before saving.";
     if (
       !threshold ||
       !Number.isInteger(Number(threshold)) ||
@@ -1163,7 +1174,9 @@ function SettingsPage({
       fields.threshold = "Enter a whole number from 0 to 100.";
     if (Object.keys(fields).length) {
       setErrors(fields);
-      document.getElementById("settings-" + Object.keys(fields)[0])?.focus();
+      document
+        .getElementById(fields.profile ? "settings-resume" : "settings-" + Object.keys(fields)[0])
+        ?.focus();
       return;
     }
     setBusy(true);
@@ -1172,12 +1185,14 @@ function SettingsPage({
       await api("/api/preferences", "PUT", {
         ...workspace.preferences,
         profile,
+        resume,
         threshold: Number(threshold),
       });
       await reload();
       setThreshold(String(Number(threshold)));
-      setBaseline({ ...workspace.preferences, profile, threshold: Number(threshold) });
+      setBaseline({ ...workspace.preferences, profile, resume, threshold: Number(threshold) });
       setErrors({});
+      setResumeVersion((value) => value + 1);
       setSaved(true);
     } catch (error) {
       setFailure(errorMessage(error));
@@ -1190,33 +1205,46 @@ function SettingsPage({
       <ProviderSettings workspace={workspace} reload={reload} active={active} />
       {failure && <Alert>{failure}</Alert>}
       <form className="profile-form" onSubmit={(event) => void save(event)} noValidate>
-        <fieldset disabled={busy || workspace.running}>
+        <fieldset disabled={busy || workspace.running || readingResume}>
           <h2>Profile</h2>
-          <Field
-            id="settings-profile"
-            label="Experience and job requirements (required)"
-            error={errors.profile}
-          >
-            <textarea
-              className="profile-input"
-              value={profile}
-              maxLength={12000}
-              onBlur={() =>
-                setErrors((v) => ({
-                  ...v,
-                  profile:
-                    profile !== baseline.profile && profile.trim().length < 10
-                      ? "Describe your experience and requirements in at least 10 characters."
-                      : "",
-                }))
-              }
-              onChange={(event) => {
-                setProfile(event.target.value);
-                setSaved(false);
-                setErrors((v) => ({ ...v, profile: "" }));
-              }}
-            />
-          </Field>
+          <ResumeImport
+            key={resumeVersion}
+            active={active}
+            onReadingChange={setReadingResume}
+            disabled={busy || workspace.running || readingResume}
+            hasProfile={Boolean(profile.trim())}
+            onApply={(value) => {
+              setProfile(value.text);
+              setResume({ name: value.name, pages: value.pages });
+              setSaved(false);
+              setErrors((v) => ({ ...v, profile: "" }));
+            }}
+          />
+          {profile && (
+            <div className="resume-summary">
+              <div>
+                <FileText aria-hidden="true" />
+                <div>
+                  <strong>{resume?.name ?? "Saved profile text"}</strong>
+                  {resume && (
+                    <span>
+                      {resume.pages} {resume.pages === 1 ? "page" : "pages"}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                id="review-resume"
+                onClick={() => {
+                  setReviewText(profile);
+                  setReviewOpen(true);
+                }}
+              >
+                Review text
+              </button>
+            </div>
+          )}
           <div className="short-field">
             <Field
               id="settings-threshold"
@@ -1258,7 +1286,9 @@ function SettingsPage({
               <button
                 type="button"
                 onClick={() => {
+                  setResumeVersion((value) => value + 1);
                   setProfile(workspace.preferences.profile);
+                  setResume(workspace.preferences.resume);
                   setThreshold(String(workspace.preferences.threshold));
                   setBaseline(workspace.preferences);
                   setErrors({});
@@ -1276,6 +1306,47 @@ function SettingsPage({
           </div>
         </fieldset>
       </form>
+      <Modal
+        open={active && reviewOpen}
+        title="Resume text"
+        onClose={() => {
+          setReviewOpen(false);
+          setReviewText("");
+        }}
+      >
+        <Field id="resume-review-text" label="Extracted text (required)">
+          <textarea
+            className="resume-review-text"
+            value={reviewText}
+            maxLength={12000}
+            onChange={(event) => setReviewText(event.target.value)}
+          />
+        </Field>
+        <div className="dialog-actions">
+          <button
+            type="button"
+            onClick={() => {
+              setReviewOpen(false);
+              setReviewText("");
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="primary"
+            disabled={reviewText === profile || reviewText.trim().length < 10}
+            onClick={() => {
+              setProfile(reviewText);
+              setSaved(false);
+              setReviewOpen(false);
+              setReviewText("");
+            }}
+          >
+            Use changes
+          </button>
+        </div>
+      </Modal>
     </>
   );
 }

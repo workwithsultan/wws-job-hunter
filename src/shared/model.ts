@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { resumeMetadataSchema } from "./resume.js";
 import { countrySchema, workTypeSchema, defaultSearchScope } from "./search-scope.js";
 export const statusLabels = {
   new: "New",
@@ -56,6 +57,7 @@ export const preferencesSchema = z
     country: countrySchema,
     workType: workTypeSchema,
     profile: z.string().max(12000),
+    resume: resumeMetadataSchema.nullable(),
     roles: terms,
     exclusions: terms,
     sources: z
@@ -83,11 +85,16 @@ export const preferencesSchema = z
     }, "Choose a valid timezone."),
     scheduleDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
   })
-  .strict();
+  .strict()
+  .refine((value) => !value.resume || value.profile.trim().length >= 10, {
+    message: "Import readable resume text before saving.",
+    path: ["profile"],
+  });
 export type Preferences = z.infer<typeof preferencesSchema>;
 export const defaultPreferences: Preferences = {
   ...defaultSearchScope,
   profile: "",
+  resume: null,
   roles: [],
   exclusions: [],
   sources: Object.keys(sources) as Source[],

@@ -31,6 +31,7 @@ export function buildApp(
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
+        workerSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:"],
         connectSrc: ["'self'"],

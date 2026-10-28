@@ -59,6 +59,7 @@ export class Store {
     const value = { ...saved };
     if ("limit" in value) delete value.limit;
     return preferencesSchema.parse({
+      resume: null,
       country: defaultPreferences.country,
       workType: defaultPreferences.workType,
       ...value,

@@ -852,9 +852,6 @@ details summary {
   line-height: 1rem;
   font-variant-numeric: tabular-nums;
 }
-.profile-input {
-  min-height: 12rem;
-}
 .provider-heading {
   display: flex;
   align-items: center;
@@ -867,9 +864,6 @@ details summary {
   gap: 0.5rem;
   font-size: 1rem;
   font-weight: 500;
-}
-.align-start {
-  justify-self: start;
 }
 .alert {
   display: flex;
@@ -1564,4 +1558,61 @@ details summary {
   .chip-add {
     min-height: 2.75rem;
   }
+}
+
+.resume-import {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.resume-import .field {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+#settings-resume {
+  width: fit-content;
+  align-self: flex-start;
+  justify-self: start;
+}
+
+.resume-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.resume-summary > div {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+.resume-summary > div > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.resume-summary strong {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.resume-summary span {
+  color: var(--muted-foreground);
+}
+.resume-summary svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+}
+.resume-review-text {
+  min-height: 16rem;
+  max-height: 50vh;
 }

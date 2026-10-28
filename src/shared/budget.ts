@@ -34,6 +34,18 @@ export function remainingDays(renewal: string, timezone: string, now = new Date(
   const today = Date.parse(`${part("year")}-${part("month")}-${part("day")}T00:00:00Z`);
   return Math.max(1, Math.ceil((Date.parse(renewal + "T00:00:00Z") - today) / 86400000));
 }
+export function dailySearchTarget(
+  balances: readonly { remaining: number; renewalDate: string | null }[],
+  timezone: string,
+  now = new Date(),
+): number | null {
+  if (!balances.length || balances.some((balance) => balance.renewalDate === null)) return null;
+  return balances.reduce(
+    (total, balance) =>
+      total + Math.floor(balance.remaining / remainingDays(balance.renewalDate!, timezone, now)),
+    0,
+  );
+}
 export function searchBudget(
   quota: SerpQuota | null,
   preferences: Preferences,
@@ -50,16 +62,7 @@ export function searchBudget(
     };
   const remaining = quota.accounts.reduce((sum, account) => sum + account.remaining, 0);
   const monthlyLimit = quota.accounts.reduce((sum, account) => sum + account.monthlyLimit, 0);
-  const dailyTarget = quota.accounts.every((account) => account.renewalDate !== null)
-    ? quota.accounts.reduce(
-        (sum, account) =>
-          sum +
-          Math.floor(
-            account.remaining / remainingDays(account.renewalDate!, preferences.timezone, now),
-          ),
-        0,
-      )
-    : null;
+  const dailyTarget = dailySearchTarget(quota.accounts, preferences.timezone, now);
   const target = dailyTarget ?? remaining;
   let limit = 10;
   if (preferences.roles.length) {
