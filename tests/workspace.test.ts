@@ -38,14 +38,14 @@ import {
   buildFirstPageSearchQueries,
 } from "../src/discovery/search-query.js";
 
-function installation() {
+function installation(now?: () => Date) {
   const directory = mkdtempSync(join(tmpdir(), "job-hunter-check-"));
   writeFileSync(
     join(directory, ".env.local"),
     "APP_HOST=127.0.0.1\nPORT=8790\nDATA_DIR=./data\nOPENROUTER_API_KEY=\nSERPAPI_API_KEY=\nOPENROUTER_MODEL=\n",
     { mode: 0o600 },
   );
-  const store = new Store(join(directory, "workspace.sqlite"));
+  const store = new Store(join(directory, "workspace.sqlite"), now);
   const config = new Configuration(directory);
   const runner = new Runner(store, config);
   return {
@@ -546,7 +546,7 @@ test("schema upgrade retains existing numeric scores and keeps assessment and ap
         columns.some((c) => c.name === "assessment"),
         true,
       );
-      assert.equal(check.pragma("user_version", { simple: true }), 4);
+      assert.equal(check.pragma("user_version", { simple: true }), 5);
     } finally {
       check.close();
     }
@@ -986,4 +986,165 @@ test("Greenhouse discovery, URL identity and extraction accept both official hos
     buildSearchQueryPreview(["Automation Specialist"], 10, sourceDomains),
     /job-boards\.greenhouse\.io/,
   );
+});
+
+test("the rolling opportunity window expires at exactly 24 hours across lists, counters, exports and refresh metadata", async () => {
+  let instant = Date.parse("2026-10-29T00:00:00Z");
+  const item = installation(() => new Date(instant));
+  const app = buildApp(item.store, item.config, item.runner, item.directory, 8790);
+  try {
+    const entry = {
+      title: "Expired opportunity",
+      url: "https://jobs.lever.co/company/expired",
+      source: "jobs.lever.co" as const,
+      snippet: "",
+      description: "",
+      assessment: "match" as const,
+      reason: "Relevant experience",
+      status: "ready" as const,
+    };
+    item.store.insert(entry);
+    item.store.insert({
+      ...entry,
+      title: "Historical application",
+      url: entry.url + "-applied",
+      status: "applied",
+    });
+    instant += 60 * 60 * 1000;
+    item.store.insert({
+      ...entry,
+      title: "Current opportunity",
+      url: entry.url + "-current",
+      assessment: "review",
+      status: "review",
+    });
+    instant = Date.parse("2026-10-29T23:59:59.999Z");
+    assert.equal(item.store.list({ q: "", status: "", applications: false, page: 1 }).total, 2);
+    assert.equal(item.store.nextOpportunityExpiry(), "2026-10-30T00:00:00.000Z");
+    instant += 1;
+    assert.deepEqual(
+      item.store
+        .list({ q: "", status: "", applications: false, page: 1 })
+        .jobs.map((job) => job.title),
+      ["Current opportunity"],
+    );
+    assert.equal(
+      item.store.list({ q: "Expired", status: "ready", applications: false, page: 5 }).total,
+      0,
+    );
+    assert.deepEqual(item.store.totals(), {
+      jobs: 1,
+      matches: 0,
+      review: 1,
+      applications: 1,
+      interviewing: 0,
+      offers: 0,
+    });
+    assert.equal(item.store.nextOpportunityExpiry(), "2026-10-30T01:00:00.000Z");
+    const workspace = await app.inject({
+      url: "/api/workspace",
+      headers: { host: "127.0.0.1:8790" },
+    });
+    assert.equal(workspace.json().opportunitiesExpireAt, "2026-10-30T01:00:00.000Z");
+    const queue = await app.inject({
+      url: "/api/export?applications=false",
+      headers: { host: "127.0.0.1:8790" },
+    });
+    assert.match(queue.body, /Current opportunity/);
+    assert.doesNotMatch(queue.body, /Expired opportunity|Historical application/);
+    const applications = await app.inject({
+      url: "/api/export?applications=true",
+      headers: { host: "127.0.0.1:8790" },
+    });
+    assert.match(applications.body, /Historical application/);
+    assert.doesNotMatch(applications.body, /Current opportunity|Expired opportunity/);
+    instant += 60 * 60 * 1000;
+    assert.equal(item.store.list({ q: "", status: "", applications: false, page: 1 }).total, 0);
+    assert.equal(item.store.nextOpportunityExpiry(), null);
+    assert.equal(item.store.list({ q: "", status: "", applications: true, page: 1 }).total, 1);
+    assert.equal(item.store.has(entry.url), true);
+    assert.equal(item.store.allJobs().length, 3);
+  } finally {
+    await app.close();
+    item.cleanup();
+  }
+});
+
+test("notes and queue edits do not renew opportunities, while returning an application starts a fresh window", () => {
+  let instant = Date.parse("2026-10-29T00:00:00Z");
+  const item = installation(() => new Date(instant));
+  try {
+    item.store.insert({
+      title: "Operations",
+      url: "https://jobs.lever.co/company/operations",
+      source: "jobs.lever.co" as const,
+      snippet: "",
+      description: "",
+      assessment: null,
+      reason: "",
+      status: "new",
+    });
+    const id = item.store.pending()[0]!.id;
+    instant += 60 * 60 * 1000;
+    item.store.assess(id, {
+      description: "Relevant work",
+      assessment: "match",
+      score: 90,
+      reason: "Relevant experience",
+      status: "ready",
+    });
+    const entered = item.store.job(id)!.opportunityAt;
+    assert.equal(entered, "2026-10-29T01:00:00.000Z");
+    instant += 23 * 60 * 60 * 1000;
+    item.store.update(id, "review", "Keep these notes");
+    assert.equal(item.store.job(id)!.opportunityAt, entered);
+    instant += 60 * 60 * 1000;
+    assert.equal(item.store.list({ q: "", status: "", applications: false, page: 1 }).total, 0);
+    item.store.update(id, "applied", "Keep these notes");
+    instant += 7 * 24 * 60 * 60 * 1000;
+    assert.equal(item.store.list({ q: "", status: "", applications: true, page: 1 }).total, 1);
+    item.store.update(id, "ready", "Keep these notes");
+    assert.equal(item.store.list({ q: "", status: "", applications: false, page: 1 }).total, 1);
+    assert.equal(item.store.list({ q: "", status: "", applications: true, page: 1 }).total, 0);
+    assert.equal(item.store.job(id)!.opportunityAt, new Date(instant).toISOString());
+    assert.equal(item.store.job(id)!.createdAt, "2026-10-29T00:00:00.000Z");
+    assert.equal(item.store.job(id)!.notes, "Keep these notes");
+    assert.equal(item.store.job(id)!.score, 90);
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("upgrading a version-four database preserves original opportunity age instead of renewing old jobs", () => {
+  let instant = Date.parse("2026-10-29T00:00:00Z");
+  const item = installation(() => new Date(instant));
+  let upgraded: Store | undefined;
+  try {
+    item.store.insert({
+      title: "Existing job",
+      url: "https://jobs.lever.co/company/existing",
+      source: "jobs.lever.co" as const,
+      snippet: "",
+      description: "",
+      assessment: "match",
+      reason: "Relevant experience",
+      status: "ready",
+    });
+    const id = item.store.allJobs()[0]!.id;
+    instant += 23 * 60 * 60 * 1000;
+    item.store.update(id, "ready", "Existing notes");
+    item.store.close();
+    const db = new Database(join(item.directory, "workspace.sqlite"));
+    db.exec("ALTER TABLE jobs DROP COLUMN opportunityAt; PRAGMA user_version=4");
+    db.close();
+    instant += 60 * 60 * 1000;
+    upgraded = new Store(join(item.directory, "workspace.sqlite"), () => new Date(instant));
+    assert.equal(upgraded.list({ q: "", status: "", applications: false, page: 1 }).total, 0);
+    assert.equal(upgraded.job(id)!.opportunityAt, "2026-10-29T00:00:00.000Z");
+    assert.equal(upgraded.job(id)!.notes, "Existing notes");
+    assert.equal(upgraded.job(id)!.status, "ready");
+  } finally {
+    upgraded?.close();
+    item.cleanup();
+  }
 });

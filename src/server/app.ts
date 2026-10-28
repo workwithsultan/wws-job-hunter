@@ -91,6 +91,7 @@ export function buildApp(
     });
   });
   app.get("/api/workspace", async () => ({
+    opportunitiesExpireAt: store.nextOpportunityExpiry(),
     resumeAvailable: store.hasResumeDocument(),
     lastRun: store.runs()[0] ?? null,
     preferences: store.preferences(),
@@ -353,14 +354,17 @@ export function buildApp(
     if (missing.length) return reply.code(400).send({ error: missing.join(". ") + "." });
     return reply.code(202).send({ id: runner.start() });
   });
-  app.get("/api/export", async (_request, reply) => {
+  app.get("/api/export", async (request, reply) => {
+    const query = z
+      .object({ applications: z.enum(["true", "false"]).optional() })
+      .parse(request.query);
     const cell = (value: string | number | null) => {
       let text = String(value ?? "");
       if (/^\s*[=+@\-\t\r]/.test(text)) text = "'" + text;
       return '"' + text.replaceAll('"', '""') + '"';
     };
     const records = store
-      .allJobs()
+      .allJobs(query.applications === undefined ? undefined : query.applications === "true")
       .map((job) =>
         [
           job.title,

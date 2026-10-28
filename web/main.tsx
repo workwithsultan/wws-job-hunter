@@ -543,6 +543,32 @@ function JobsPage({
       clearTimeout(timeout);
     };
   }, [q, status, page, applications, active, version, retry]);
+  useEffect(() => {
+    if (!active || applications) return;
+    let disposed = false;
+    const refreshOpportunities = () => {
+      if (document.visibilityState !== "visible") return;
+      void reload().catch((error) => {
+        if (!disposed) setFailure(errorMessage(error));
+      });
+    };
+    refreshOpportunities();
+    const expiry = workspace.opportunitiesExpireAt;
+    const timer = expiry
+      ? window.setTimeout(
+          refreshOpportunities,
+          Math.max(0, new Date(expiry).getTime() - Date.now()) + 100,
+        )
+      : undefined;
+    window.addEventListener("focus", refreshOpportunities);
+    document.addEventListener("visibilitychange", refreshOpportunities);
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", refreshOpportunities);
+      document.removeEventListener("visibilitychange", refreshOpportunities);
+    };
+  }, [active, applications, workspace.opportunitiesExpireAt, reload]);
   const filter = (name: string, value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set(name, value);
@@ -571,22 +597,22 @@ function JobsPage({
   const emptyTitle = workspace.running
     ? "Searching for opportunities"
     : queueCleared
-      ? "All jobs are tracked in Applications"
+      ? "No opportunities from the last 24 hours"
       : searchFailed
         ? "Your search needs attention"
         : workspace.lastRun?.status === "completed"
-          ? "No matching jobs found"
+          ? "No opportunities from the last 24 hours"
           : setupIncomplete
             ? "No jobs yet"
             : "Ready for your first search";
   const emptyMessage = workspace.running
     ? "Your search is running. New jobs will appear here as they are saved."
     : queueCleared
-      ? "There are no jobs waiting to apply or review. Follow your existing applications in Applications."
+      ? "Opportunities stay here for 24 hours. Your tracked applications remain in Applications."
       : searchFailed
         ? workspace.lastRun!.message
         : workspace.lastRun?.status === "completed"
-          ? "The last search did not add matching roles. Try broader target titles or review your search preferences."
+          ? "Opportunities stay here for 24 hours. Run a search to check for recent roles, or review your search preferences."
           : setupIncomplete
             ? "Add your target roles and profile, then search for jobs that match what you’re looking for."
             : "Your setup is complete. Start a search to discover and assess new opportunities.";
@@ -617,12 +643,19 @@ function JobsPage({
       <div className="collection">
         <div className="collection-heading">
           <h2>{applications ? "Your applications" : "Your opportunities"}</h2>
-          {total > 0 && (
-            <a className="button ghost" href="/api/export" download>
-              <ArrowDownToLine />
-              Export CSV
-            </a>
-          )}
+          <div className="collection-actions">
+            {total > 0 && (
+              <a
+                className="button ghost"
+                href={"/api/export?applications=" + String(applications)}
+                download
+              >
+                <ArrowDownToLine />
+                Export CSV
+              </a>
+            )}
+            {!applications && <span className="collection-window">Last 24 hours</span>}
+          </div>
         </div>
         {total > 0 && (
           <div className="collection-toolbar">
@@ -731,69 +764,74 @@ function JobsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.jobs.map((job) => (
-                    <tr key={job.id}>
-                      <td>
-                        <a
-                          className="job-title"
-                          href={job.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          {job.title}
-                          <ArrowUpRight aria-hidden="true" />
-                        </a>
-                        <span className="mobile-source">
-                          {sources[job.source]} ·{" "}
-                          <time dateTime={job.createdAt}>
-                            {new Date(job.createdAt).toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </time>
-                        </span>
-                        <span
-                          className={
-                            "badge mobile-assessment assessment-" + (job.assessment ?? "pending")
-                          }
-                        >
-                          {matchScoreLabel(job)}
-                        </span>
-                      </td>
-                      <td className="assessment-cell">
-                        <span className={"badge assessment-" + (job.assessment ?? "pending")}>
-                          {matchScoreLabel(job)}
-                        </span>
-                      </td>
-                      <td className="desktop-cell">{sources[job.source]}</td>
-                      <td>
-                        <div className="job-row-actions">
-                          <JobStatusChoice
-                            job={job}
-                            reload={reload}
-                            applications={applications}
-                            filterStatus={status}
-                          />
-                          <Link
-                            className="icon-button ghost job-edit"
-                            aria-label={"Edit notes for " + job.title}
-                            data-job-id={job.id}
-                            to={{
-                              search: new URLSearchParams({
-                                ...Object.fromEntries(params),
-                                job: String(job.id),
-                              }).toString(),
-                            }}
+                  {data.jobs.map((job) => {
+                    const addedAt = applications
+                      ? job.createdAt
+                      : (job.opportunityAt ?? job.createdAt);
+                    return (
+                      <tr key={job.id}>
+                        <td>
+                          <a
+                            className="job-title"
+                            href={job.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
                           >
-                            <Pencil aria-hidden="true" />
-                          </Link>
-                        </div>
-                      </td>
-                      <td className="desktop-cell">
-                        <time dateTime={job.createdAt}>{dateText(job.createdAt)}</time>
-                      </td>
-                    </tr>
-                  ))}
+                            {job.title}
+                            <ArrowUpRight aria-hidden="true" />
+                          </a>
+                          <span className="mobile-source">
+                            {sources[job.source]} ·{" "}
+                            <time dateTime={addedAt}>
+                              {new Date(addedAt).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </time>
+                          </span>
+                          <span
+                            className={
+                              "badge mobile-assessment assessment-" + (job.assessment ?? "pending")
+                            }
+                          >
+                            {matchScoreLabel(job)}
+                          </span>
+                        </td>
+                        <td className="assessment-cell">
+                          <span className={"badge assessment-" + (job.assessment ?? "pending")}>
+                            {matchScoreLabel(job)}
+                          </span>
+                        </td>
+                        <td className="desktop-cell">{sources[job.source]}</td>
+                        <td>
+                          <div className="job-row-actions">
+                            <JobStatusChoice
+                              job={job}
+                              reload={reload}
+                              applications={applications}
+                              filterStatus={status}
+                            />
+                            <Link
+                              className="icon-button ghost job-edit"
+                              aria-label={"Edit notes for " + job.title}
+                              data-job-id={job.id}
+                              to={{
+                                search: new URLSearchParams({
+                                  ...Object.fromEntries(params),
+                                  job: String(job.id),
+                                }).toString(),
+                              }}
+                            >
+                              <Pencil aria-hidden="true" />
+                            </Link>
+                          </div>
+                        </td>
+                        <td className="desktop-cell">
+                          <time dateTime={addedAt}>{dateText(addedAt)}</time>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

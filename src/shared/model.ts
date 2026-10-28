@@ -103,6 +103,7 @@ export interface Job {
   reason: string;
   status: JobStatus;
   notes: string;
+  opportunityAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -157,6 +158,7 @@ export interface SerpQuota {
   checkedAt: string;
 }
 export interface Workspace {
+  opportunitiesExpireAt: string | null;
   resumeAvailable: boolean;
   lastRun: SearchRun | null;
   preferences: Preferences;

@@ -18,7 +18,7 @@ API calls consume your own provider credits. An unconfigured installation makes 
 
 ## Workspace
 
-- **Jobs:** filter opportunities, read match reasons, open original postings, export CSV, and check SerpApi quota.
+- **Jobs:** opportunities stay visible for a rolling 24 hours after entering the queue. Filter results, read match reasons, open original postings, export the current queue, and check SerpApi quota. Expired entries stay in local storage for deduplication; they are not deleted. Notes and queue-status edits do not extend the window. Returning an application to Jobs starts a fresh 24 hours. Applications retain their full history. The open Jobs page refreshes at expiry and when you return to the tab, without starting a search.
 - **Applications:** follow Applied, Interviewed, Offered, Accepted, Rejected, and Withdrawn stages.
 - **Search:** edit roles, exclusion keywords, country and work type.
 - **Search logs:** review search executions in a table with status, time, duration, result counts, and full progress or error messages.
