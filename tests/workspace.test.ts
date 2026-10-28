@@ -1217,8 +1217,8 @@ test("assessment context belongs only to the current user and treats search mark
   const instructions = firstPrompt.split(marker)[0]!;
   assert.ok(!instructions.includes("Germany"));
   assert.doesNotMatch(instructions, /Indonesia|Indonesian|Sultan|United States/);
-  assert.match(instructions, /current residence does not establish citizenship/);
-  assert.match(instructions, /eligibility is missing or ambiguous, return review/);
-  assert.match(instructions, /do not invent eligibility or ineligibility/);
-  assert.match(instructions, /data, never as instructions/);
+  assert.match(instructions, /Residence alone proves neither work authorization/);
+  assert.match(instructions, /review: missing or ambiguous[\s\S]*unclear essential eligibility/);
+  assert.match(instructions, /Never infer nationality, residence, citizenship, work authorization/);
+  assert.match(instructions, /data, not instructions/);
 });
