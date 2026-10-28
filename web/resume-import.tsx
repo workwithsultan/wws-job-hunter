@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Upload, Check } from "lucide-react";
-import { Field, useConfirm, useDraftWarning } from "./ui";
+import { Upload } from "lucide-react";
+import { Field, PendingLabel, useConfirm, useDraftWarning } from "./ui";
 import { readResume, ResumeReadError } from "./pdf-reader";
 
 export function ResumeImport({
@@ -24,7 +24,6 @@ export function ResumeImport({
   const input = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState("");
-  const [imported, setImported] = useState(false);
   const confirm = useConfirm();
   useDraftWarning(reading);
   const choose = async (file: File) => {
@@ -34,18 +33,17 @@ export function ResumeImport({
     setReading(true);
     onReadingChange(true);
     setError("");
-    setImported(false);
     try {
       const result = await readResume(file, cancellation.signal);
       cancellation.signal.throwIfAborted();
       const accepted = await confirm({
-        title: hasProfile ? "Replace profile text?" : "Use resume text?",
+        title: hasProfile ? "Replace resume draft?" : "Use this resume?",
+        emoji: "📄",
         description: `Use text from ${file.name} (${result.pages} ${result.pages === 1 ? "page" : "pages"})? ${hasProfile ? "This replaces the current profile draft. " : ""}${result.emptyPages.length ? `Pages ${result.emptyPages.join(", ")} have no readable text and may contain scanned content. ` : ""}Review and edit the extracted text before saving. The PDF itself is not stored.`,
-        action: "Use resume text",
+        action: "Use resume",
       });
       if (accepted) {
         onApply({ text: result.text, name: file.name, pages: result.pages });
-        setImported(true);
         requestAnimationFrame(() => document.getElementById("review-resume")?.focus());
       }
     } catch (problem) {
@@ -67,7 +65,11 @@ export function ResumeImport({
       <Field id="settings-resume" label="Resume PDF (required, up to 10 MB)" error={error}>
         <button type="button" disabled={disabled || reading} onClick={() => input.current?.click()}>
           <Upload aria-hidden="true" />
-          {reading ? "Reading PDF…" : hasProfile ? "Replace resume" : "Upload resume"}
+          <PendingLabel
+            pending={reading}
+            idle={hasProfile ? "Replace resume" : "Upload resume"}
+            busy="Reading PDF…"
+          />
         </button>
       </Field>
       <input
@@ -82,12 +84,6 @@ export function ResumeImport({
           if (file) void choose(file);
         }}
       />
-      {imported && (
-        <span className="saved" role="status">
-          <Check aria-hidden="true" />
-          Resume text added to draft
-        </span>
-      )}
     </div>
   );
 }

@@ -1,5 +1,7 @@
+import { InteractionProvider, useInteractionState, useActivity } from "./interaction";
+import { countryEmoji, workTypeEmoji } from "../src/shared/emoji";
 import { assessmentLabel } from "../src/shared/assessment";
-import { StrictMode, useCallback, useEffect, useState, type FormEvent } from "react";
+import { StrictMode, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
   BrowserRouter,
@@ -33,6 +35,7 @@ import {
 import {
   applicationStatuses,
   preferencesSchema,
+  searchPreferenceKeys,
   sources,
   statusLabels,
   type Job,
@@ -43,7 +46,7 @@ import {
   type Workspace,
 } from "../src/shared/model";
 import { countries } from "../src/shared/countries";
-import { workTypes } from "../src/shared/search-scope";
+import { countryName, workTypes } from "../src/shared/search-scope";
 import { searchChanged, searchValid, profileValid } from "./form-state";
 import { searchBudget } from "../src/shared/budget";
 import type { ResumeMetadata } from "../src/shared/resume";
@@ -51,6 +54,9 @@ import { ResumeImport } from "./resume-import";
 import { ProviderSettings, useQuota } from "./providers";
 import { api, ApiError, dateText } from "./api";
 import {
+  ActionHint,
+  Emoji,
+  PendingLabel,
   Alert,
   Busy,
   Choice,
@@ -66,10 +72,10 @@ import "./style.css";
 const storedTheme = localStorage.getItem("jobHunterAppearance") ?? "system";
 if (storedTheme !== "system") document.documentElement.dataset.theme = storedTheme;
 const nav = [
-  { path: "/jobs", label: "Jobs", icon: BriefcaseBusiness },
-  { path: "/applications", label: "Applications", icon: FileText },
-  { path: "/search", label: "Search", icon: SearchIcon },
-  { path: "/settings", label: "Settings", icon: Settings2 },
+  { path: "/jobs", label: "Jobs", emoji: "💼", icon: BriefcaseBusiness },
+  { path: "/applications", label: "Applications", emoji: "📋", icon: FileText },
+  { path: "/search", label: "Search", emoji: "🔎", icon: SearchIcon },
+  { path: "/settings", label: "Settings", emoji: "⚙️", icon: Settings2 },
 ];
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "The action could not be completed. Try again.";
@@ -90,27 +96,38 @@ function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [theme, setTheme] = useState(storedTheme);
   const [starting, setStarting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshRequest = useRef(0);
+  useActivity(refreshing, "busy");
+  useActivity(starting, "write");
   const navigate = useNavigate();
   const location = useLocation();
   const confirm = useConfirm();
+  const interaction = useInteractionState();
   const reload = useCallback(async () => {
+    const request = ++refreshRequest.current;
+    setRefreshing(true);
     try {
       const data = await api<Workspace>("/api/workspace");
+      if (request !== refreshRequest.current) return;
       setWorkspace(data);
       setFailure("");
-      setVersion((v) => v + 1);
+      setVersion((value) => value + 1);
     } catch (error) {
-      setFailure(errorMessage(error));
+      if (request === refreshRequest.current) throw error;
+    } finally {
+      if (request === refreshRequest.current) setRefreshing(false);
     }
   }, []);
-  useEffect(() => {
-    void reload();
+  const refresh = useCallback(() => {
+    void reload().catch((error) => setFailure(errorMessage(error)));
   }, [reload]);
+  useEffect(() => refresh(), [refresh]);
   useEffect(() => {
     if (!workspace?.running) return;
-    const interval = setInterval(() => void reload(), 2500);
+    const interval = setInterval(refresh, 2500);
     return () => clearInterval(interval);
-  }, [workspace?.running, reload]);
+  }, [workspace?.running, refresh]);
   useEffect(() => {
     if (location.pathname === "/") navigate("/jobs", { replace: true });
     setMobileMenu(false);
@@ -119,6 +136,14 @@ function App() {
       (nav.find((item) => item.path === location.pathname)?.label ?? "Job Hunter") +
       " · Job Hunter";
   }, [location.pathname, navigate]);
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 1024px)");
+    const close = () => {
+      if (wide.matches) setMobileMenu(false);
+    };
+    wide.addEventListener("change", close);
+    return () => wide.removeEventListener("change", close);
+  }, []);
   const appearance = (value: string) => {
     setTheme(value);
     localStorage.setItem("jobHunterAppearance", value);
@@ -126,7 +151,7 @@ function App() {
     else document.documentElement.dataset.theme = value;
   };
   const start = async () => {
-    if (!workspace || starting || workspace.running) return;
+    if (!workspace || starting || workspace.running || interaction.busy) return;
     const missing = missingSetup(workspace);
     if (missing.profile || missing.providers) {
       navigate("/settings");
@@ -136,6 +161,7 @@ function App() {
       navigate("/search");
       return;
     }
+    if (interaction.dirty) return;
     setStarting(true);
     try {
       const quota = await api<import("../src/shared/model").SerpQuota>(
@@ -151,14 +177,22 @@ function App() {
       if (
         !(await confirm({
           title: "Start a job search?",
+          emoji: "🔎",
+          details: [
+            { label: "Job titles", value: workspace.preferences.roles.join(", ") },
+            { label: "Country", value: countryName(workspace.preferences.country) },
+            { label: "Work type", value: workTypes[workspace.preferences.workType] },
+            { label: "AI model", value: workspace.connections.model },
+          ],
           description: `Estimated usage: ${budget.searchesPerRun} SerpApi searches before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} New jobs will be matched against your resume using OpenAI.`,
           action: "Start search",
         }))
       )
         return;
       await api("/api/runs", "POST", {});
-      await reload();
+      setWorkspace((value) => (value ? { ...value, running: true } : value));
       navigate("/search");
+      await reload();
     } catch (error) {
       setFailure(errorMessage(error));
     } finally {
@@ -176,6 +210,7 @@ function App() {
     </nav>
   );
   const current = nav.find((item) => item.path === location.pathname);
+  const incomplete = workspace ? Object.values(missingSetup(workspace)).some(Boolean) : true;
   return (
     <>
       <a href="#main" className="skip-link">
@@ -209,6 +244,7 @@ function App() {
               <button
                 className="icon-button ghost mobile-menu"
                 aria-label="Open navigation"
+                aria-expanded={mobileMenu}
                 onClick={() => setMobileMenu(true)}
               >
                 <Menu />
@@ -227,24 +263,44 @@ function App() {
           <main id="main" tabIndex={-1}>
             <div className="page-heading">
               <div>
-                <h1>{current?.label ?? "Page not found"}</h1>
+                <h1>
+                  {current && <Emoji>{current.emoji}</Emoji>}
+                  {current?.label ?? "Page not found"}
+                </h1>
               </div>
               {workspace && (location.pathname === "/jobs" || location.pathname === "/search") && (
                 <button
                   className="primary"
-                  disabled={workspace.running || starting}
+                  disabled={
+                    workspace.running ||
+                    starting ||
+                    interaction.busy ||
+                    (!incomplete && interaction.dirty)
+                  }
                   onClick={() => void start()}
                 >
                   {workspace.running ? <Clock3 /> : <Play />}
-                  {workspace.running
-                    ? "Searching…"
-                    : Object.values(missingSetup(workspace)).some(Boolean)
-                      ? "Complete setup"
-                      : "Search jobs"}
+                  <PendingLabel
+                    pending={starting}
+                    busy="Preparing search…"
+                    idle={
+                      workspace.running
+                        ? "Searching…"
+                        : incomplete
+                          ? "Complete setup"
+                          : interaction.dirty
+                            ? "Save changes first"
+                            : "Search jobs"
+                    }
+                  />
                 </button>
               )}
             </div>
-            {failure && <Alert onRetry={() => void reload()}>{failure}</Alert>}
+            {failure && (
+              <Alert onRetry={refresh} retrying={refreshing}>
+                {failure}
+              </Alert>
+            )}
             {!workspace && !failure && <Busy />}
             {workspace && (
               <>
@@ -580,8 +636,15 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const confirm = useConfirm();
+  const interaction = useInteractionState();
   useEffect(() => {
-    if (!id) return;
+    if (!id) {
+      setJob(null);
+      setNotes("");
+      setStatus("new");
+      setSaved(false);
+      return;
+    }
     setJob(null);
     setFailure("");
     setSaved(false);
@@ -601,8 +664,9 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
       disposed = true;
     };
   }, [id]);
-  const dirty = Boolean(job && (status !== job.status || notes !== job.notes));
+  const dirty = Boolean(id && job && (status !== job.status || notes !== job.notes));
   useDraftWarning(dirty);
+  useActivity(busy, "write");
   const close = async () => {
     if (busy) return;
     if (
@@ -621,14 +685,30 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (!job || busy || !dirty) return;
+    if (!job || busy || interaction.writing || !dirty) return;
+    if (
+      !(await confirm({
+        title: "Save job changes?",
+        emoji: "💾",
+        description: job.title,
+        action: "Save changes",
+        details: [
+          { label: "Status", value: statusLabels[status] },
+          {
+            label: "Notes",
+            value: notes ? `${notes.length.toLocaleString()} characters` : "No notes",
+          },
+        ],
+      }))
+    )
+      return;
     setBusy(true);
     try {
       await api("/api/jobs/" + job.id, "PUT", { status, notes });
       setJob({ ...job, status, notes });
-      setSaved(true);
       setFailure("");
       await reload();
+      setSaved(true);
     } catch (error) {
       setFailure(errorMessage(error));
     } finally {
@@ -639,6 +719,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
     if (
       !job ||
       busy ||
+      interaction.writing ||
       !(await confirm({
         title: "Delete this job?",
         description: `Permanently delete “${job.title}” and its notes from this workspace?`,
@@ -665,6 +746,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
       open={Boolean(id)}
       onClose={() => void close()}
       title={job?.title ?? "Job details"}
+      busy={busy}
       drawer
     >
       {failure && <Alert>{failure}</Alert>}
@@ -685,6 +767,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
           <Field id="jobStatus" label="Application status (required)">
             <Choice
               value={status}
+              disabled={busy || interaction.writing}
               onChange={(value) => {
                 setStatus(value as JobStatus);
                 setSaved(false);
@@ -696,6 +779,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
           <Field id="jobNotes" label="Notes (optional)">
             <textarea
               value={notes}
+              disabled={busy || interaction.writing}
               maxLength={12000}
               onChange={(event) => {
                 setNotes(event.target.value);
@@ -704,8 +788,8 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
             />
           </Field>
           <div className="form-actions">
-            <button className="primary" disabled={busy || !dirty}>
-              {busy ? "Saving…" : "Save changes"}
+            <button className="primary" disabled={busy || interaction.writing || !dirty}>
+              <PendingLabel pending={busy} idle="Save changes" busy="Saving…" />
             </button>
             {saved && (
               <span className="saved" role="status">
@@ -724,7 +808,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
             <button
               className="ghost danger-text"
               type="button"
-              disabled={busy}
+              disabled={busy || interaction.writing}
               onClick={() => void remove()}
             >
               <Trash2 />
@@ -752,7 +836,19 @@ function SearchPage({
   const [pending, setPending] = useState({ roles: false, exclusions: false });
   const hasPending = pending.roles || pending.exclusions;
   const dirty = searchChanged(draft, baseline) || hasPending;
-  const valid = searchValid(draft, hasPending);
+  const canSchedule = !Object.values(
+    missingSetup({
+      ...workspace,
+      preferences: {
+        ...draft,
+        profile: workspace.preferences.profile,
+        resume: workspace.preferences.resume,
+      },
+    }),
+  ).some(Boolean);
+  const valid = searchValid(draft, hasPending) && (!draft.scheduleEnabled || canSchedule);
+  const confirm = useConfirm();
+  const interaction = useInteractionState();
   const [chipVersion, setChipVersion] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
@@ -763,15 +859,20 @@ function SearchPage({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyRetry, setHistoryRetry] = useState(0);
   const [query, setQuery] = useState("");
-  const { quota } = useQuota(workspace.connections.serpapiKeys, active, workspace.running);
+  const {
+    quota,
+    failure: quotaError,
+    load: refreshQuota,
+  } = useQuota(workspace.connections.serpapiKeys, active, workspace.running);
   const budget = searchBudget(quota, draft);
   useDraftWarning(dirty);
+  useActivity(busy, "write");
   useEffect(() => {
-    if (!dirty) {
-      setDraft(workspace.preferences);
+    if (!dirty || (!hasPending && !searchChanged(draft, workspace.preferences))) {
+      if (draft !== workspace.preferences) setDraft(workspace.preferences);
       setBaseline(workspace.preferences);
     }
-  }, [workspace.preferences, dirty]);
+  }, [workspace.preferences, dirty, hasPending, draft]);
   useEffect(() => {
     if (workspace.running) setHistoryOpen(true);
   }, [workspace.running]);
@@ -816,7 +917,7 @@ function SearchPage({
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy || !dirty) return;
+    if (busy || interaction.writing || !dirty) return;
     const candidate = {
       ...draft,
       profile: workspace.preferences.profile,
@@ -836,10 +937,44 @@ function SearchPage({
       document.getElementById("search-" + Object.keys(fields)[0])?.focus();
       return;
     }
+    if (
+      !(await confirm({
+        title: "Save search preferences?",
+        emoji: "💾",
+        description: "These settings will be used for future searches.",
+        action: "Save changes",
+        details: [
+          { label: "Job titles", value: candidate.roles.join(", ") },
+          { label: "Excluded keywords", value: candidate.exclusions.join(", ") || "None" },
+          { label: "Country", value: countryName(candidate.country) },
+          { label: "Work type", value: workTypes[candidate.workType] },
+          {
+            label: "Job sites",
+            value: candidate.sources.map((source) => sources[source]).join(", "),
+          },
+          {
+            label: "Schedule",
+            value: candidate.scheduleEnabled
+              ? `${[...candidate.scheduleDays]
+                  .sort()
+                  .map((day) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][day])
+                  .join(", ")} · ${candidate.scheduleTime} · ${candidate.timezone}`
+              : "Off",
+          },
+        ],
+      }))
+    )
+      return;
     setBusy(true);
     setFailure("");
     try {
-      await api("/api/preferences", "PUT", candidate);
+      await api(
+        "/api/preferences/search",
+        "PATCH",
+        Object.fromEntries(
+          searchPreferenceKeys.map((key) => [key, candidate[key as keyof Preferences]]),
+        ),
+      );
       await reload();
       setDraft(candidate);
       setBaseline(candidate);
@@ -866,9 +1001,11 @@ function SearchPage({
     <>
       {failure && <Alert>{failure}</Alert>}
       <form onSubmit={(event) => void save(event)} noValidate className="search-form">
-        <fieldset disabled={workspace.running || busy}>
+        <fieldset disabled={workspace.running || busy || interaction.writing}>
           <section className="search-section">
-            <h2>Job titles</h2>
+            <h2>
+              <Emoji>🎯</Emoji>Job titles
+            </h2>
             <div className="keyword-grid">
               <Field id="search-roles" label="Include (required)" error={errors.roles}>
                 <ChipInput
@@ -899,7 +1036,9 @@ function SearchPage({
             </div>
           </section>
           <section className="search-section">
-            <h2>Location and work type</h2>
+            <h2>
+              <Emoji>🌍</Emoji>Location and work type
+            </h2>
             <div className="keyword-grid">
               <Field id="search-country" label="Country (required)" error={errors.country}>
                 <Choice
@@ -907,8 +1046,12 @@ function SearchPage({
                   onChange={(value) => change("country", value)}
                   label="Country"
                   options={[
-                    { value: "any", label: "Any country" },
-                    ...Object.entries(countries).map(([value, label]) => ({ value, label })),
+                    { value: "any", label: "Any country", emoji: countryEmoji("any") },
+                    ...Object.entries(countries).map(([value, label]) => ({
+                      value,
+                      label,
+                      emoji: countryEmoji(value),
+                    })),
                   ]}
                 />
               </Field>
@@ -917,13 +1060,19 @@ function SearchPage({
                   value={draft.workType}
                   onChange={(value) => change("workType", value as Preferences["workType"])}
                   label="Work type"
-                  options={Object.entries(workTypes).map(([value, label]) => ({ value, label }))}
+                  options={Object.entries(workTypes).map(([value, label]) => ({
+                    value,
+                    label,
+                    emoji: workTypeEmoji[value as keyof typeof workTypes],
+                  }))}
                 />
               </Field>
             </div>
           </section>
           <section className="search-section">
-            <h2 id="source-heading">Job sites (required)</h2>
+            <h2 id="source-heading">
+              <Emoji>🔗</Emoji>Job sites (required)
+            </h2>
             <div className="source-chips" role="group" aria-labelledby="source-heading">
               {Object.entries(sources).map(([value, label]) => {
                 const selected = draft.sources.includes(value as keyof typeof sources);
@@ -952,6 +1101,7 @@ function SearchPage({
                 );
               })}
             </div>
+            {quotaError && <Alert onRetry={() => void refreshQuota()}>{quotaError}</Alert>}
             {budget.remaining !== null && (
               <div className="search-usage" role="status">
                 <span>{budget.remaining.toLocaleString()} searches remaining</span>
@@ -961,15 +1111,26 @@ function SearchPage({
           </section>
           <section className="search-section">
             <div className="section-heading">
-              <h2>Schedule</h2>
-              <label className="check-line">
-                <input
-                  type="checkbox"
-                  checked={draft.scheduleEnabled}
-                  onChange={(event) => change("scheduleEnabled", event.target.checked)}
-                />
-                <span>Run automatically (optional)</span>
-              </label>
+              <h2>
+                <Emoji>🗓️</Emoji>Schedule
+              </h2>
+              <div className="schedule-toggle">
+                <label className="check-line">
+                  <input
+                    type="checkbox"
+                    checked={draft.scheduleEnabled}
+                    disabled={!draft.scheduleEnabled && !canSchedule}
+                    onChange={(event) => change("scheduleEnabled", event.target.checked)}
+                  />
+                  <span>Run automatically (optional)</span>
+                </label>
+                {!canSchedule && !draft.scheduleEnabled && (
+                  <ActionHint label="Why automatic search is unavailable">
+                    Save your resume, connect both providers, choose a model, and add a job title
+                    first.
+                  </ActionHint>
+                )}
+              </div>
             </div>
             {draft.scheduleEnabled && (
               <div className="schedule-fields">
@@ -1039,8 +1200,17 @@ function SearchPage({
           </section>
           <div className="form-actions">
             <button className="primary" disabled={busy || !dirty || !valid}>
-              {busy ? "Saving…" : "Save changes"}
+              <PendingLabel pending={busy} idle="Save changes" busy="Saving…" />
             </button>
+            {dirty && !valid && (
+              <ActionHint label="Why Save changes is unavailable">
+                {hasPending
+                  ? "Add or clear the typed keywords before saving."
+                  : !draft.roles.length
+                    ? "Add at least one job title before saving."
+                    : "Complete the required search settings before saving."}
+              </ActionHint>
+            )}
             {dirty && (
               <button
                 type="button"
@@ -1051,6 +1221,7 @@ function SearchPage({
                   setPending({ roles: false, exclusions: false });
                   setChipVersion((value) => value + 1);
                   setErrors({});
+                  requestAnimationFrame(() => document.getElementById("search-roles")?.focus());
                 }}
               >
                 Cancel
@@ -1134,35 +1305,51 @@ function SettingsPage({
   const dirty =
     profile !== baseline.profile || JSON.stringify(resume) !== JSON.stringify(baseline.resume);
   const valid = profileValid(profile);
+  const confirm = useConfirm();
+  const interaction = useInteractionState();
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const [readingResume, setReadingResume] = useState(false);
   const [resumeVersion, setResumeVersion] = useState(0);
   const [saved, setSaved] = useState(false);
   useDraftWarning(dirty || (reviewOpen && reviewText !== profile));
+  useActivity(busy || readingResume, "write");
   useEffect(() => {
-    if (!dirty) {
+    if (
+      !dirty ||
+      (profile === workspace.preferences.profile &&
+        JSON.stringify(resume) === JSON.stringify(workspace.preferences.resume))
+    ) {
       setBaseline(workspace.preferences);
       setProfile(workspace.preferences.profile);
       setResume(workspace.preferences.resume);
     }
-  }, [workspace.preferences, dirty]);
+  }, [workspace.preferences, dirty, profile, resume]);
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy || !dirty) return;
+    if (busy || interaction.writing || !dirty) return;
     if (!valid) {
       setFailure("Upload a readable resume PDF before saving.");
       document.getElementById("settings-resume")?.focus();
       return;
     }
+    if (
+      !(await confirm({
+        title: "Save this resume?",
+        emoji: "📄",
+        description: "Use this profile for future job matching.",
+        action: "Save profile",
+        details: [
+          { label: "Resume", value: resume?.name ?? "Saved profile text" },
+          { label: "Text", value: `${profile.length.toLocaleString()} characters` },
+        ],
+      }))
+    )
+      return;
     setBusy(true);
     setFailure("");
     try {
-      await api("/api/preferences", "PUT", {
-        ...workspace.preferences,
-        profile,
-        resume,
-      });
+      await api("/api/preferences/profile", "PATCH", { profile, resume });
       await reload();
       setBaseline({ ...workspace.preferences, profile, resume });
       setResumeVersion((value) => value + 1);
@@ -1175,16 +1362,17 @@ function SettingsPage({
   };
   return (
     <>
-      <ProviderSettings workspace={workspace} reload={reload} active={active} />
       {failure && <Alert>{failure}</Alert>}
       <form className="profile-form" onSubmit={(event) => void save(event)} noValidate>
-        <fieldset disabled={busy || workspace.running || readingResume}>
-          <h2>Profile</h2>
+        <fieldset disabled={busy || workspace.running || readingResume || interaction.writing}>
+          <h2>
+            <Emoji>📄</Emoji>Resume
+          </h2>
           <ResumeImport
             key={resumeVersion}
             active={active}
             onReadingChange={setReadingResume}
-            disabled={busy || workspace.running || readingResume}
+            disabled={busy || workspace.running || readingResume || interaction.writing}
             hasProfile={Boolean(profile.trim())}
             onApply={(value) => {
               setProfile(value.text);
@@ -1219,7 +1407,7 @@ function SettingsPage({
           )}
           <div className="form-actions">
             <button className="primary" disabled={!dirty || !valid || busy}>
-              {busy ? "Saving…" : "Save profile"}
+              <PendingLabel pending={busy} idle="Save profile" busy="Saving…" />
             </button>
             {dirty && (
               <button
@@ -1229,6 +1417,13 @@ function SettingsPage({
                   setProfile(workspace.preferences.profile);
                   setResume(workspace.preferences.resume);
                   setBaseline(workspace.preferences);
+                  requestAnimationFrame(() =>
+                    document
+                      .getElementById(
+                        workspace.preferences.profile ? "review-resume" : "settings-resume",
+                      )
+                      ?.focus(),
+                  );
                 }}
               >
                 Cancel
@@ -1243,15 +1438,36 @@ function SettingsPage({
           </div>
         </fieldset>
       </form>
+      <ProviderSettings workspace={workspace} reload={reload} active={active} />
       <Modal
         open={active && reviewOpen}
         title="Resume text"
         onClose={() => {
-          setReviewOpen(false);
-          setReviewText("");
+          void (async () => {
+            if (
+              reviewText !== profile &&
+              !(await confirm({
+                title: "Discard text edits?",
+                description: "Your edits in this review have not been applied to the resume draft.",
+                action: "Discard edits",
+                destructive: true,
+              }))
+            )
+              return;
+            setReviewOpen(false);
+            setReviewText("");
+          })();
         }}
       >
-        <Field id="resume-review-text" label="Extracted text (required)">
+        <Field
+          id="resume-review-text"
+          label="Extracted text (required)"
+          error={
+            reviewText !== profile && !profileValid(reviewText)
+              ? "Use between 10 and 12,000 characters."
+              : undefined
+          }
+        >
           <textarea
             className="resume-review-text"
             value={reviewText}
@@ -1272,7 +1488,7 @@ function SettingsPage({
           <button
             type="button"
             className="primary"
-            disabled={reviewText === profile || reviewText.trim().length < 10}
+            disabled={reviewText === profile || !profileValid(reviewText)}
             onClick={() => {
               setProfile(reviewText);
               setSaved(false);
@@ -1289,10 +1505,12 @@ function SettingsPage({
 }
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <BrowserRouter>
-      <ConfirmationProvider>
-        <App />
-      </ConfirmationProvider>
-    </BrowserRouter>
+    <InteractionProvider>
+      <BrowserRouter>
+        <ConfirmationProvider>
+          <App />
+        </ConfirmationProvider>
+      </BrowserRouter>
+    </InteractionProvider>
   </StrictMode>,
 );

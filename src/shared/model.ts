@@ -90,6 +90,18 @@ export const preferencesSchema = z
     message: "Import readable resume text before saving.",
     path: ["profile"],
   });
+const { profile: profileField, resume: resumeField, ...searchFields } = preferencesSchema.shape;
+export const profilePreferencesSchema = z
+  .object({ profile: profileField, resume: resumeField })
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "Include at least one profile change.");
+export const searchPreferencesSchema = z
+  .object(searchFields)
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, "Include at least one search change.");
+export const searchPreferenceKeys = Object.keys(searchFields);
 export type Preferences = z.infer<typeof preferencesSchema>;
 export const defaultPreferences: Preferences = {
   ...defaultSearchScope,

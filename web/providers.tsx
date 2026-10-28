@@ -1,41 +1,53 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useActivity, useInteractionState } from "./interaction";
+import { useCallback, useEffect, useState, useRef, type FormEvent } from "react";
 import { Trash2, RefreshCw, Check } from "lucide-react";
 import type { SavedKey, SerpQuota, Workspace } from "../src/shared/model";
 import { providerKeySchema } from "../src/shared/model";
 import { searchBudget } from "../src/shared/budget";
 import { api, ApiError } from "./api";
-import { Alert, Choice, Field, useConfirm, useDraftWarning } from "./ui";
+import { Alert, Choice, Field, Emoji, PendingLabel, useConfirm, useDraftWarning } from "./ui";
 
 export function useQuota(keys: SavedKey[], active: boolean, running: boolean) {
   const [quota, setQuota] = useState<SerpQuota | null>(null);
   const [failure, setFailure] = useState("");
   const [loading, setLoading] = useState(false);
+  const requestSerial = useRef(0);
   const signature = keys.map((key) => key.id).join(",");
   const load = useCallback(
     async (refresh = true) => {
+      const request = ++requestSerial.current;
       if (!signature) {
         setQuota(null);
         setFailure("");
+        setLoading(false);
         return;
       }
       setLoading(true);
+      setQuota(null);
       try {
-        setQuota(await api<SerpQuota>("/api/serpapi/quota" + (refresh ? "?refresh=true" : "")));
+        const result = await api<SerpQuota>(
+          "/api/serpapi/quota" + (refresh ? "?refresh=true" : ""),
+        );
+        if (request !== requestSerial.current) return;
+        setQuota(result);
         setFailure("");
       } catch (error) {
-        setFailure(error instanceof Error ? error.message : "Quota could not be loaded.");
+        if (request === requestSerial.current) {
+          setQuota(null);
+          setFailure(error instanceof Error ? error.message : "Quota could not be loaded.");
+        }
       } finally {
-        setLoading(false);
+        if (request === requestSerial.current) setLoading(false);
       }
     },
     [signature],
   );
   useEffect(() => {
-    if (!signature) {
-      setQuota(null);
-      return;
-    }
-    if (active && !running) void load();
+    if (!signature || (active && !running)) void load();
+    return () => {
+      requestSerial.current++;
+      setLoading(false);
+    };
   }, [signature, active, running, load]);
   return { quota, failure, loading, load };
 }
@@ -51,6 +63,8 @@ export function ProviderSettings({
   const [openaiKey, setOpenaiKey] = useState("");
   const [serpapiKey, setSerpapiKey] = useState("");
   const [editOpenai, setEditOpenai] = useState(false);
+  const [modelRevision, setModelRevision] = useState(0);
+  const modelRequest = useRef(0);
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState("");
@@ -58,6 +72,7 @@ export function ProviderSettings({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
   const confirm = useConfirm();
+  const interaction = useInteractionState();
   const {
     quota,
     loading: quotaLoading,
@@ -65,11 +80,15 @@ export function ProviderSettings({
     load: loadQuota,
   } = useQuota(workspace.connections.serpapiKeys, active, workspace.running);
   useDraftWarning(Boolean(openaiKey || serpapiKey));
+  useActivity(Boolean(busy), "write");
+  useActivity(quotaLoading, "busy");
   const loadModels = useCallback(
     async (refresh = false) => {
+      const request = ++modelRequest.current;
       if (!workspace.connections.openai) {
         setModels([]);
         setModelsError("");
+        setModelsLoading(false);
         return;
       }
       setModelsLoading(true);
@@ -77,23 +96,28 @@ export function ProviderSettings({
         const result = await api<{ models: string[] }>(
           "/api/openai/models" + (refresh ? "?refresh=true" : ""),
         );
+        if (request !== modelRequest.current) return;
         setModels(result.models);
         setModelsError("");
       } catch (error) {
+        if (request !== modelRequest.current) return;
         setModelsError(error instanceof Error ? error.message : "Models could not be loaded.");
         setModels([]);
       } finally {
-        setModelsLoading(false);
+        if (request === modelRequest.current) setModelsLoading(false);
       }
     },
-    [workspace.connections.openai, workspace.connections.openaiLastFour],
+    [workspace.connections.openai, workspace.connections.openaiLastFour, modelRevision],
   );
   useEffect(() => {
     if (active) void loadModels();
+    return () => {
+      modelRequest.current++;
+    };
   }, [active, loadModels]);
   const connect = async (event: FormEvent, provider: "openai" | "serpapi") => {
     event.preventDefault();
-    if (busy || workspace.running) return;
+    if (busy || workspace.running || interaction.writing) return;
     const key = provider === "openai" ? openaiKey : serpapiKey;
     const parsed = providerKeySchema.safeParse({ key });
     if (!parsed.success) {
@@ -109,6 +133,7 @@ export function ProviderSettings({
             : "Connect API key?",
         description: `Connect the ${provider === "openai" ? "OpenAI" : "SerpApi"} key ending ${parsed.data.key.slice(-4)}? Its ${provider === "openai" ? "available models" : "account quota"} will be checked.`,
         action: "Connect key",
+        emoji: "🔑",
       }))
     )
       return;
@@ -128,7 +153,7 @@ export function ProviderSettings({
         setSerpapiKey("");
       }
       await reload();
-      if (provider === "openai") await loadModels(true);
+      if (provider === "openai") setModelRevision((value) => value + 1);
     } catch (error) {
       if (error instanceof ApiError && error.fields.key)
         setErrors((v) => ({ ...v, [provider]: error.fields.key! }));
@@ -138,7 +163,24 @@ export function ProviderSettings({
     }
   };
   const selectModel = async (model: string) => {
-    if (busy || !model || model === workspace.connections.model) return;
+    if (
+      busy ||
+      workspace.running ||
+      interaction.writing ||
+      !model ||
+      model === workspace.connections.model
+    )
+      return;
+    if (
+      !(await confirm({
+        title: "Change OpenAI model?",
+        emoji: "🤖",
+        description: "Use this model for future job matching. It will use your OpenAI account.",
+        details: [{ label: "Model", value: model }],
+        action: "Use model",
+      }))
+    )
+      return;
     setBusy("model");
     setModelsError("");
     try {
@@ -153,6 +195,8 @@ export function ProviderSettings({
   const remove = async (provider: "openai" | "serpapi", key?: SavedKey) => {
     if (
       busy ||
+      workspace.running ||
+      interaction.writing ||
       !(await confirm({
         title: "Remove API key?",
         description: `Remove the ${provider === "openai" ? "OpenAI" : "SerpApi"} key ending ${key?.lastFour ?? workspace.connections.openaiLastFour}? ${provider === "openai" || workspace.connections.serpapiKeys.length === 1 ? "Scheduled searches will be disabled." : "The search budget will be recalculated."}`,
@@ -177,13 +221,15 @@ export function ProviderSettings({
     }
   };
   const budget = searchBudget(quota, workspace.preferences);
-  const locked = Boolean(busy) || workspace.running;
+  const locked = Boolean(busy) || workspace.running || interaction.writing;
   return (
     <section className="connections-section" aria-label="Provider connections">
       {failure && <Alert>{failure}</Alert>}
       <div className="provider-section">
         <div className="provider-heading">
-          <h2>OpenAI</h2>
+          <h2>
+            <Emoji>🤖</Emoji>OpenAI
+          </h2>
           {workspace.connections.openai && (
             <span className="connection-state">
               <Check />
@@ -195,7 +241,7 @@ export function ProviderSettings({
           <div className="saved-key">
             <code>•••• {workspace.connections.openaiLastFour}</code>
             <div>
-              <button disabled={locked} onClick={() => setEditOpenai(true)}>
+              <button id="change-openai-key" disabled={locked} onClick={() => setEditOpenai(true)}>
                 Change key
               </button>
               <button
@@ -219,6 +265,15 @@ export function ProviderSettings({
                 type="password"
                 autoComplete="new-password"
                 value={openaiKey}
+                onBlur={() => {
+                  if (openaiKey) {
+                    const checked = providerKeySchema.safeParse({ key: openaiKey });
+                    setErrors((value) => ({
+                      ...value,
+                      openai: checked.success ? "" : checked.error.issues[0]!.message,
+                    }));
+                  }
+                }}
                 maxLength={500}
                 disabled={locked}
                 onChange={(event) => {
@@ -232,15 +287,22 @@ export function ProviderSettings({
                 className="primary"
                 disabled={locked || !providerKeySchema.safeParse({ key: openaiKey }).success}
               >
-                {busy === "openai" ? "Connecting…" : "Connect"}
+                <PendingLabel pending={busy === "openai"} idle="Connect" busy="Connecting…" />
               </button>
-              {editOpenai && (
+              {(editOpenai || openaiKey) && (
                 <button
                   type="button"
                   disabled={locked}
                   onClick={() => {
                     setOpenaiKey("");
                     setEditOpenai(false);
+                    requestAnimationFrame(() =>
+                      document
+                        .getElementById(
+                          workspace.connections.openai ? "change-openai-key" : "openai-key",
+                        )
+                        ?.focus(),
+                    );
                     setErrors((v) => ({ ...v, openai: "" }));
                   }}
                 >
@@ -255,6 +317,7 @@ export function ProviderSettings({
             value={workspace.connections.model}
             onChange={(value) => void selectModel(value)}
             label="OpenAI model"
+            aria-busy={modelsLoading}
             placeholder={
               !workspace.connections.openai
                 ? "Connect an API key first"
@@ -268,11 +331,17 @@ export function ProviderSettings({
             options={models.map((value) => ({ value, label: value }))}
           />
         </Field>
-        {modelsError && <Alert onRetry={() => void loadModels(true)}>{modelsError}</Alert>}
+        {modelsError && (
+          <Alert retrying={modelsLoading} onRetry={() => void loadModels(true)}>
+            {modelsError}
+          </Alert>
+        )}
       </div>
       <div className="provider-section">
         <div className="provider-heading">
-          <h2>SerpApi keys</h2>
+          <h2>
+            <Emoji>🔑</Emoji>SerpApi keys
+          </h2>
           {workspace.connections.serpapiKeys.length > 0 && (
             <button
               className="ghost"
@@ -298,6 +367,11 @@ export function ProviderSettings({
                         {account.remaining.toLocaleString()} searches left · {account.plan}
                       </span>
                     )}
+                    {quotaLoading && (
+                      <span className="key-quota" role="status">
+                        Checking quota…
+                      </span>
+                    )}
                     {state?.error && (
                       <span className="key-error" role="status">
                         {state.error}
@@ -317,7 +391,11 @@ export function ProviderSettings({
             })}
           </div>
         )}
-        {quotaFailure && <Alert onRetry={() => void loadQuota()}>{quotaFailure}</Alert>}
+        {quotaFailure && (
+          <Alert retrying={quotaLoading} onRetry={() => void loadQuota()}>
+            {quotaFailure}
+          </Alert>
+        )}
         {quota?.complete && (
           <div className="quota-summary">
             <span>
@@ -338,11 +416,20 @@ export function ProviderSettings({
             noValidate
             onSubmit={(event) => void connect(event, "serpapi")}
           >
-            <Field id="serpapi-key" label="Add API key (required)" error={errors.serpapi}>
+            <Field id="serpapi-key" label="SerpApi key (required)" error={errors.serpapi}>
               <input
                 type="password"
                 autoComplete="new-password"
                 value={serpapiKey}
+                onBlur={() => {
+                  if (serpapiKey) {
+                    const checked = providerKeySchema.safeParse({ key: serpapiKey });
+                    setErrors((value) => ({
+                      ...value,
+                      serpapi: checked.success ? "" : checked.error.issues[0]!.message,
+                    }));
+                  }
+                }}
                 maxLength={500}
                 disabled={locked}
                 onChange={(event) => {
@@ -356,7 +443,7 @@ export function ProviderSettings({
                 className="primary"
                 disabled={locked || !providerKeySchema.safeParse({ key: serpapiKey }).success}
               >
-                {busy === "serpapi" ? "Connecting…" : "Add key"}
+                <PendingLabel pending={busy === "serpapi"} idle="Add key" busy="Connecting…" />
               </button>
               {serpapiKey && (
                 <button
@@ -364,6 +451,7 @@ export function ProviderSettings({
                   disabled={locked}
                   onClick={() => {
                     setSerpapiKey("");
+                    requestAnimationFrame(() => document.getElementById("serpapi-key")?.focus());
                     setErrors((v) => ({ ...v, serpapi: "" }));
                   }}
                 >

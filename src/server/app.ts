@@ -7,6 +7,8 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import {
   preferencesSchema,
+  profilePreferencesSchema,
+  searchPreferencesSchema,
   jobUpdateSchema,
   providerKeySchema,
   statusSchema,
@@ -121,12 +123,12 @@ export function buildApp(
       ? { ok: true }
       : reply.code(404).send({ error: "This job is no longer in your workspace." });
   });
-  app.put("/api/preferences", async (request, reply) => {
-    if (runner.running)
-      return reply
-        .code(409)
-        .send({ error: "Wait for the current search to finish before changing preferences." });
-    const preferences = preferencesSchema.parse(request.body);
+  const savePreferences = (value: unknown, reply: FastifyReply) => {
+    const preferences = preferencesSchema.parse(value);
+    if (runner.running || runner.updatingConnections)
+      return reply.code(409).send({
+        error: "Wait for the current search or connection update before saving preferences.",
+      });
     if (preferences.scheduleEnabled && runner.missing(preferences).length)
       return reply.code(400).send({
         error:
@@ -135,7 +137,20 @@ export function buildApp(
     store.savePreferences(preferences);
     runner.reschedule();
     return { ok: true };
-  });
+  };
+  app.put("/api/preferences", async (request, reply) => savePreferences(request.body, reply));
+  app.patch("/api/preferences/profile", async (request, reply) =>
+    savePreferences(
+      { ...store.preferences(), ...profilePreferencesSchema.parse(request.body) },
+      reply,
+    ),
+  );
+  app.patch("/api/preferences/search", async (request, reply) =>
+    savePreferences(
+      { ...store.preferences(), ...searchPreferencesSchema.parse(request.body) },
+      reply,
+    ),
+  );
   const connectionChanged = () => {
     if (runner.missing().length)
       store.savePreferences({ ...store.preferences(), scheduleEnabled: false });

@@ -1,3 +1,4 @@
+import { countryEmoji } from "../src/shared/emoji.js";
 import { assessmentSchema, assessmentLabel, assessmentStatus } from "../src/shared/assessment.js";
 import { test } from "node:test";
 import Database from "better-sqlite3";
@@ -22,7 +23,7 @@ import { defaultPreferences, preferencesSchema } from "../src/shared/model.js";
 import { discoverJobs } from "../src/discovery/serpapi.js";
 import { isJobUrl, extractDescription } from "../src/server/extract.js";
 import { searchLocation } from "../src/shared/search-scope.js";
-import { searchChanged, searchValid, profileValid } from "../web/form-state.js";
+import { searchChanged, searchValid, profileValid, keywordEntry } from "../web/form-state.js";
 import { countries } from "../src/shared/countries.js";
 import {
   buildSearchQueryBody,
@@ -518,5 +519,90 @@ test("schema upgrade removes numeric scores and keeps assessment and application
     reopened.close();
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("country flags use real country codes without changing text labels", () => {
+  assert.equal(countryEmoji("us"), "🇺🇸");
+  assert.equal(countryEmoji("id"), "🇮🇩");
+  assert.equal(countryEmoji("uk"), "🇬🇧");
+  assert.equal(countryEmoji("UK"), "🇬🇧");
+  assert.equal(countryEmoji("an"), "🇨🇼");
+  assert.equal(countryEmoji("any"), "🌍");
+  assert.throws(() => countryEmoji("invalid"));
+});
+
+test("keyword readiness rejects duplicates and preserves uncommitted input for correction", () => {
+  assert.deepEqual(keywordEntry([], "Operations, Support"), {
+    values: ["Operations", "Support"],
+    error: "",
+  });
+  assert.match(keywordEntry(["Operations"], "operations").error, /Already added/);
+  assert.match(keywordEntry([], "Operations, operations").error, /Already added/);
+  assert.match(keywordEntry([], '"Operations"').error, /quotation/);
+  assert.match(keywordEntry([], "").error, /Enter/);
+  assert.equal(keywordEntry([], "Operations\nSupport").error, "");
+});
+
+test("profile and search updates preserve each other's saved settings", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, resolve("."), 8790);
+  const headers = {
+    host: "127.0.0.1:8790",
+    origin: "http://127.0.0.1:8790",
+    "content-type": "application/json",
+  };
+  try {
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/search",
+          headers,
+          payload: { country: "id" },
+        })
+      ).statusCode,
+      200,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/profile",
+          headers,
+          payload: { profile: "", resume: null },
+        })
+      ).statusCode,
+      200,
+    );
+    assert.equal(item.store.preferences().country, "id");
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/profile",
+          headers,
+          payload: { country: "us" },
+        })
+      ).statusCode,
+      400,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/search",
+          headers,
+          payload: { resume: null },
+        })
+      ).statusCode,
+      400,
+    );
+    assert.equal(item.store.totals().jobs, 0);
+    assert.deepEqual(item.store.runs(), []);
+  } finally {
+    await app.close();
+    await item.runner.stop();
+    item.cleanup();
   }
 });

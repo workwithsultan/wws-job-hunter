@@ -23,7 +23,9 @@ API calls consume your own provider credits. An unconfigured installation makes 
 - **Search:** edit roles, exclusion keywords, country, work type, sources and schedule, and view actual execution history.
 - **Settings:** edit your profile and provider keys.
 
-Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Provider Connect buttons require a key; model and appearance selections save immediately only when changed.
+Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Saving forms, changing models, adding keywords or keys, and deleting saved items require confirmation. Cancel and Escape preserve the current draft without saving it. Searches wait until pending edits and operations finish. Resume and search settings save separately so one form cannot overwrite the other. Provider Connect buttons require valid input; appearance changes apply immediately.
+
+Country flags and contextual emoji use the device’s native emoji font, including Apple emoji on Apple devices. Country names remain readable and keyboard searchable. The interface supports light, dark, and system appearance.
 
 Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Railway, Telegram, and a separate database server are not required. Existing historical spreadsheets are not imported or modified.
 
