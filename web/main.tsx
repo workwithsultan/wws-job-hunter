@@ -70,6 +70,7 @@ import {
 } from "./ui";
 import { SearchLogs } from "./search-logs";
 import { JobQuota } from "./job-quota";
+import { SearchProgress } from "./search-progress";
 import "./style.css";
 
 const storedTheme = localStorage.getItem("jobHunterAppearance") ?? "system";
@@ -77,7 +78,6 @@ if (storedTheme !== "system") document.documentElement.dataset.theme = storedThe
 const nav = [
   { path: "/jobs", label: "Jobs", emoji: "💼", icon: BriefcaseBusiness },
   { path: "/applications", label: "Applications", emoji: "📋", icon: FileText },
-  { path: "/search", label: "Search", emoji: "🔎", icon: SearchIcon },
   { path: "/logs", label: "Search logs", emoji: "📜", icon: ScrollText },
   { path: "/settings", label: "Settings", emoji: "⚙️", icon: Settings2 },
 ];
@@ -101,6 +101,8 @@ function App() {
   const [theme, setTheme] = useState(storedTheme);
   const [starting, setStarting] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [searchRunId, setSearchRunId] = useState<number | null>(null);
   const searchTrigger = useRef<HTMLButtonElement>(null);
   const setupFocusTarget = useRef<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -137,6 +139,7 @@ function App() {
   }, [workspace?.running, refresh]);
   useEffect(() => {
     if (location.pathname === "/") navigate("/jobs", { replace: true });
+    if (location.pathname === "/search") navigate("/settings" + location.hash, { replace: true });
     setMobileMenu(false);
     window.scrollTo(0, 0);
     document.title =
@@ -147,6 +150,12 @@ function App() {
     );
     return () => cancelAnimationFrame(frame);
   }, [location.pathname, navigate]);
+  useEffect(() => {
+    if (workspace?.running && workspace.lastRun && searchRunId === null) {
+      setSearchRunId(workspace.lastRun.id);
+      setProgressOpen(true);
+    }
+  }, [workspace, searchRunId]);
   useEffect(() => {
     const wide = window.matchMedia("(min-width: 1024px)");
     const close = () => {
@@ -196,9 +205,10 @@ function App() {
         }))
       )
         return;
-      await api("/api/runs", "POST", {});
+      const { id } = await api<{ id: number }>("/api/runs", "POST", {});
+      setSearchRunId(id);
+      setProgressOpen(true);
       setWorkspace((value) => (value ? { ...value, running: true } : value));
-      navigate("/logs");
       await reload();
     } catch (error) {
       setFailure(errorMessage(error));
@@ -301,7 +311,7 @@ function App() {
                   {current?.label ?? "Page not found"}
                 </h1>
               </div>
-              {workspace && (location.pathname === "/jobs" || location.pathname === "/search") && (
+              {workspace && location.pathname === "/jobs" && (
                 <div className="heading-actions">
                   <button
                     className="primary"
@@ -363,13 +373,6 @@ function App() {
                     active={location.pathname === "/applications"}
                   />
                 </section>
-                <section hidden={location.pathname !== "/search"} className="page-content">
-                  <SearchPage
-                    workspace={workspace}
-                    reload={reload}
-                    active={location.pathname === "/search"}
-                  />
-                </section>
                 <section hidden={location.pathname !== "/logs"} className="page-content">
                   <SearchLogs
                     active={location.pathname === "/logs"}
@@ -394,6 +397,18 @@ function App() {
           </main>
         </div>
       </div>
+      <SearchProgress
+        open={progressOpen}
+        run={workspace?.lastRun?.id === searchRunId ? workspace.lastRun : null}
+        failure={failure}
+        onRetry={refresh}
+        onClose={() => setProgressOpen(false)}
+        onLogs={() => {
+          setProgressOpen(false);
+          navigate("/logs");
+        }}
+        returnFocus={() => searchTrigger.current?.focus()}
+      />
       <Modal open={mobileMenu} onClose={() => setMobileMenu(false)} title="Job Hunter" drawer>
         {navigation}
         <div className="mobile-appearance">
@@ -435,26 +450,26 @@ function App() {
                 label: "OpenRouter key",
                 done: workspace.connections.openrouter,
                 action: "Connect OpenRouter",
-                target: "/settings#openrouter-key",
+                target: "/settings?tab=connections#openrouter-key",
               },
               {
                 label: "AI model",
                 done: Boolean(workspace.connections.model),
                 blocked: !workspace.connections.openrouter,
                 action: "Choose model",
-                target: "/settings#openrouter-model",
+                target: "/settings?tab=connections#openrouter-model",
               },
               {
                 label: "SerpApi key",
                 done: workspace.connections.serpapi,
                 action: "Connect SerpApi",
-                target: "/settings#serpapi-key",
+                target: "/settings?tab=connections#serpapi-key",
               },
               {
                 label: "Job titles",
                 done: !missingSetup(workspace).roles,
                 action: "Set job titles",
-                target: "/search#search-roles",
+                target: "/settings#search-roles",
               },
             ].map((item) => (
               <li key={item.label}>
@@ -721,7 +736,7 @@ function JobsPage({
                       ? "/applications"
                       : searchFailed
                         ? "/logs"
-                        : "/search"
+                        : "/settings"
               }
             >
               {applications ? "Browse jobs" : emptyAction}
@@ -1407,7 +1422,7 @@ function SearchPage({
     </>
   );
 }
-function SettingsPage({
+function ResumeSection({
   workspace,
   reload,
   active,
@@ -1420,24 +1435,52 @@ function SettingsPage({
   const interaction = useInteractionState();
   useActivity(readingResume, "write");
   return (
+    <section className="profile-form" aria-labelledby="resume-heading">
+      <h2 id="resume-heading">
+        <Emoji>📄</Emoji>Resume
+      </h2>
+      <ResumeImport
+        active={active}
+        onReadingChange={setReadingResume}
+        disabled={workspace.running || readingResume || interaction.writing}
+        resume={workspace.preferences.resume}
+        available={workspace.resumeAvailable}
+        onApply={async (value) => {
+          await api("/api/resume", "PUT", value);
+          await reload();
+        }}
+      />
+    </section>
+  );
+}
+function SettingsPage({
+  workspace,
+  reload,
+  active,
+}: {
+  workspace: Workspace;
+  reload: () => Promise<void>;
+  active: boolean;
+}) {
+  const [params] = useSearchParams();
+  const connections = params.get("tab") === "connections";
+  return (
     <div className="settings-layout">
-      <section className="profile-form" aria-labelledby="resume-heading">
-        <h2 id="resume-heading">
-          <Emoji>📄</Emoji>Resume
-        </h2>
-        <ResumeImport
-          active={active}
-          onReadingChange={setReadingResume}
-          disabled={workspace.running || readingResume || interaction.writing}
-          resume={workspace.preferences.resume}
-          available={workspace.resumeAvailable}
-          onApply={async (value) => {
-            await api("/api/resume", "PUT", value);
-            await reload();
-          }}
-        />
-      </section>
-      <ProviderSettings workspace={workspace} reload={reload} active={active} />
+      <nav className="settings-tabs" aria-label="Settings sections">
+        <Link to="/settings" aria-current={!connections ? "page" : undefined}>
+          Search setup
+        </Link>
+        <Link to="/settings?tab=connections" aria-current={connections ? "page" : undefined}>
+          Connections
+        </Link>
+      </nav>
+      <div hidden={connections} className="settings-search">
+        <ResumeSection workspace={workspace} reload={reload} active={active && !connections} />
+        <SearchPage workspace={workspace} reload={reload} active={active && !connections} />
+      </div>
+      <div hidden={!connections} className="settings-connections">
+        <ProviderSettings workspace={workspace} reload={reload} active={active && connections} />
+      </div>
     </div>
   );
 }

@@ -142,7 +142,7 @@ export function JobQuota({ workspace, active }: { workspace: Workspace; active: 
                 </>
               )}
             </p>
-            <Link className="quota-settings" to="/settings#serpapi-key">
+            <Link className="quota-settings" to="/settings?tab=connections#serpapi-key">
               Manage keys
             </Link>
           </details>
@@ -160,7 +160,7 @@ export function JobQuota({ workspace, active }: { workspace: Workspace; active: 
         </div>
       )}
       {!verified && (
-        <Link className="quota-settings" to="/settings#serpapi-key">
+        <Link className="quota-settings" to="/settings?tab=connections#serpapi-key">
           {connected ? "Manage keys" : "Connect SerpApi"}
         </Link>
       )}

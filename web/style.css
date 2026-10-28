@@ -1248,6 +1248,7 @@ details summary {
   font-variant-numeric: tabular-nums;
 }
 .settings-layout {
+  grid-template-columns: minmax(0, 1fr);
   display: grid;
   gap: 1.5rem;
   min-width: 0;
@@ -1774,15 +1775,11 @@ h2 {
   white-space: nowrap;
 }
 @media (min-width: 1280px) {
-  .settings-layout {
+  .settings-connections {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-areas: "resume resume" "openrouter serpapi";
-    grid-template-rows: auto 1fr;
+    grid-template-areas: "openrouter serpapi";
     align-items: start;
     column-gap: 2rem;
-  }
-  .profile-form {
-    grid-area: resume;
   }
   .provider-openrouter {
     grid-area: openrouter;
@@ -2087,4 +2084,118 @@ h2 {
   font-size: 0.75rem;
   line-height: 1rem;
   white-space: nowrap;
+}
+
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+}
+.settings-tabs a {
+  width: auto;
+  padding: 0.5rem 1rem;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  text-decoration: none;
+}
+.settings-tabs a[aria-current="page"] {
+  background: var(--selected);
+  color: var(--selected-fg);
+  border-color: var(--primary);
+}
+.settings-search > .profile-form {
+  margin-bottom: 1.5rem;
+}
+.search-progress {
+  text-align: center;
+}
+.search-progress-symbol {
+  display: grid;
+  place-items: center;
+  width: 5rem;
+  height: 5rem;
+  margin: 1.5rem auto;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--primary);
+  background: var(--selected);
+}
+.search-progress-symbol > svg {
+  width: 2rem;
+  height: 2rem;
+}
+.search-progress-symbol.is-complete {
+  color: var(--success);
+  background: var(--surface);
+}
+.search-progress-message {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.search-progress-steps {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem 0;
+  margin: 0;
+  list-style: none;
+  text-align: left;
+}
+.search-progress-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted);
+}
+.search-progress-steps svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+}
+.search-progress-steps [aria-current="step"] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.search-progress-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+.search-progress-results dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+.search-progress-results dd {
+  margin: 0.25rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .search-progress-symbol.is-searching {
+    animation: search-breathe 2s ease-in-out infinite;
+  }
+  .search-progress-symbol.is-searching > svg {
+    animation: search-scan 2s ease-in-out infinite;
+  }
+  @keyframes search-breathe {
+    50% {
+      box-shadow: 0 0 0 0.75rem color-mix(in srgb, var(--primary) 8%, transparent);
+    }
+  }
+  @keyframes search-scan {
+    50% {
+      transform: translate(0.2rem, -0.2rem);
+    }
+  }
+}
+
+.settings-connections {
+  display: grid;
+  gap: 1.5rem;
 }

@@ -65,12 +65,14 @@ export class Runner {
     const counts = { found: 0, added: 0, matches: 0, review: 0 };
     let stage = "quota";
     try {
+      this.store.progress(id, counts, "Checking provider accounts…");
       const quota = await this.providers.quota(true);
       signal.throwIfAborted();
       const keys = this.providers.searchKeys(quota);
       if (!keys.length) throw new Error("No SerpApi account has searches available.");
       const budget = searchBudget(quota, preferences);
       stage = "discovery";
+      this.store.progress(id, counts, "Discovering jobs…");
       const discovered = await discoverJobs(
         keys.join(","),
         budget.limitPerSource,
@@ -108,6 +110,7 @@ export class Runner {
         });
       }
       stage = "assessment";
+      this.store.progress(id, counts, "Reading and assessing job descriptions…");
       const client = new OpenRouterClient(credentials.OPENROUTER_API_KEY!);
       const prompt = [
         "Assess how well a job matches the candidate's own profile and preferences. Help the candidate decide what to apply for; do not submit applications.",
