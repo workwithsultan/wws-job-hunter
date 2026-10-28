@@ -12,7 +12,7 @@ Requires **Node.js 24 LTS or newer** and npm. Download and extract the source pa
 4. Start it: `npm start`
 5. Open **http://127.0.0.1:8790**.
 
-Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, work type, and job sites. Choose **Search jobs** to start. If setup is incomplete, a checklist dialog links directly to each required field. A configured search starts only after you explicitly confirm its estimated usage.
+Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, and work type. Choose **Search jobs** to start. If setup is incomplete, a checklist dialog links directly to each required field. A configured search starts only after you explicitly confirm its estimated usage.
 
 API calls consume your own provider credits. An unconfigured installation makes no provider calls. Connecting keys verifies model access or account quota; these metadata requests do not run job discovery or AI assessment. No sample jobs, profiles, credentials, or application records are included.
 
@@ -20,7 +20,7 @@ API calls consume your own provider credits. An unconfigured installation makes 
 
 - **Jobs:** filter opportunities, read match reasons, open original postings, export CSV, and check SerpApi quota.
 - **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
-- **Search:** edit roles, exclusion keywords, country, work type, sources and schedule, and view actual execution history.
+- **Search:** edit roles, exclusion keywords, country, work type and schedule, and view actual execution history.
 - **Settings:** edit your profile and provider keys.
 
 Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Saving forms, changing models, adding keywords or keys, and deleting saved items require confirmation. Cancel and Escape preserve the current draft without saving it. Searches wait until pending edits and operations finish. Resume and search settings save separately so one form cannot overwrite the other. Provider Connect buttons require valid input; appearance changes apply immediately.
@@ -31,7 +31,7 @@ Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Ra
 
 ## Search behavior
 
-Discovery uses SerpApi's Google search API for postings on Greenhouse, Lever, Ashby, Workable, and Workday. Choose a supported country or **Any country**, and **Remote**, **Hybrid**, **On-site**, or **Any type**. New and upgraded installations retain the previous United States / Remote defaults. Country affects query terms and provider localization; work type affects query terms. Any country omits country terms and localization parameters. Queries use English terms. These are discovery preferences, so review each posting's actual location, work arrangement, and eligibility. Changing preferences affects future searches and keeps existing jobs. Results cover the last day. URL normalization prevents repeated imports of the same posting. Excluded title keywords are applied locally to titles only.
+Discovery automatically searches Greenhouse, Lever, Ashby, Workable, and Workday through SerpApi's Google search API. These supported sites are fixed and shown for information; there is no site selection setting. Query previews and quota estimates use all five sites. Choose a supported country or **Any country**, and **Remote**, **Hybrid**, **On-site**, or **Any type**. New and upgraded installations retain the previous United States / Remote defaults. Country affects query terms and provider localization; work type affects query terms. Any country omits country terms and localization parameters. Queries use English terms. These are discovery preferences, so review each posting's actual location, work arrangement, and eligibility. Changing preferences affects future searches and keeps existing jobs. Results cover the last day. URL normalization prevents repeated imports of the same posting. Excluded title keywords are applied locally to titles only.
 
 Readable descriptions are assessed against your resume using OpenAI's Responses API and structured output. Your profile and each description are sent to OpenAI with response storage disabled. Each assessment is **Match**, **Not a match**, or **Needs review**, with a concise reason. There is no numeric score or minimum threshold. Missing essential information stays Needs review. These assessments help you decide what to apply for; they do not verify eligibility or submit applications. Assessment remains separate from application status.
 

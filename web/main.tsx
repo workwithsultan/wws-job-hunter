@@ -1043,7 +1043,7 @@ function SearchPage({
           { label: "Work type", value: workTypes[candidate.workType] },
           {
             label: "Job sites",
-            value: candidate.sources.map((source) => sources[source]).join(", "),
+            value: Object.values(sources).join(", "),
           },
           {
             label: "Schedule",
@@ -1164,36 +1164,14 @@ function SearchPage({
           </section>
           <section className="search-section">
             <h2 id="source-heading">
-              <Emoji>🔗</Emoji>Job sites (required)
+              <Emoji>🔗</Emoji>Job sites
             </h2>
-            <div className="source-chips" role="group" aria-labelledby="source-heading">
-              {Object.entries(sources).map(([value, label]) => {
-                const selected = draft.sources.includes(value as keyof typeof sources);
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    className="source-chip"
-                    aria-pressed={selected}
-                    disabled={selected && draft.sources.length === 1}
-                    onClick={() =>
-                      change(
-                        "sources",
-                        selected
-                          ? draft.sources.filter((source) => source !== value)
-                          : [...draft.sources, value as keyof typeof sources],
-                      )
-                    }
-                  >
-                    <Check
-                      aria-hidden="true"
-                      style={{ visibility: selected ? "visible" : "hidden" }}
-                    />
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            <ul className="site-list" aria-labelledby="source-heading">
+              {Object.entries(sources).map(([domain, label]) => (
+                <li key={domain}>{label}</li>
+              ))}
+            </ul>
+            <p className="site-summary">All sites are searched automatically.</p>
             {quotaError && <Alert onRetry={() => void refreshQuota()}>{quotaError}</Alert>}
             {budget.remaining !== null && (
               <div className="search-usage" role="status">

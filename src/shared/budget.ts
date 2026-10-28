@@ -1,4 +1,4 @@
-import type { Preferences, SerpQuota } from "./model.js";
+import { sourceDomains, type Preferences, type SerpQuota } from "./model.js";
 import {
   buildFirstPageSearchQueries,
   FIRST_PAGE_SEARCH_DOMAINS,
@@ -14,7 +14,7 @@ export interface SearchBudget {
 }
 export function estimateSearches(preferences: Preferences, limit: number): number | null {
   if (!preferences.roles.length) return null;
-  return preferences.sources.reduce(
+  return sourceDomains.reduce(
     (sum, domain) =>
       sum +
       (FIRST_PAGE_SEARCH_DOMAINS.includes(domain)

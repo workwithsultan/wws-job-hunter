@@ -43,6 +43,7 @@ export const sources = {
   "myworkdayjobs.com": "Workday",
 } as const;
 export type Source = keyof typeof sources;
+export const sourceDomains: readonly Source[] = Object.freeze(Object.keys(sources) as Source[]);
 const terms = z
   .array(
     z
@@ -61,18 +62,6 @@ export const preferencesSchema = z
     resume: resumeMetadataSchema.nullable(),
     roles: terms,
     exclusions: terms,
-    sources: z
-      .array(
-        z.enum([
-          "boards.greenhouse.io",
-          "jobs.lever.co",
-          "jobs.ashbyhq.com",
-          "apply.workable.com",
-          "myworkdayjobs.com",
-        ]),
-      )
-      .min(1)
-      .max(5),
     scheduleEnabled: z.boolean(),
     scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     timezone: z.string().refine((value) => {
@@ -109,7 +98,6 @@ export const defaultPreferences: Preferences = {
   resume: null,
   roles: [],
   exclusions: [],
-  sources: Object.keys(sources) as Source[],
   scheduleEnabled: false,
   scheduleTime: "09:00",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,

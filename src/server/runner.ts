@@ -7,7 +7,7 @@ import { assessmentSchema, assessmentStatus } from "../shared/assessment.js";
 import { Cron } from "croner";
 import { discoverJobs } from "../discovery/serpapi.js";
 import { normalizeJobUrl } from "../discovery/url.js";
-import { type Preferences, type SearchRun, type Source } from "../shared/model.js";
+import { sourceDomains, type Preferences, type SearchRun } from "../shared/model.js";
 import { Configuration } from "./config.js";
 import { Store } from "./store.js";
 import { extractDescription, isJobUrl } from "./extract.js";
@@ -112,7 +112,7 @@ export class Runner {
         keys.join(","),
         budget.limitPerSource,
         preferences.roles,
-        preferences.sources,
+        sourceDomains,
         signal,
         preferences,
       );
@@ -122,10 +122,10 @@ export class Runner {
         const url = normalizeJobUrl(candidate.link);
         if (!isJobUrl(url)) throw new Error("The provider returned an unsupported job URL.");
         if (this.store.has(url)) continue;
-        const source = preferences.sources.find(
+        const source = sourceDomains.find(
           (host) => new URL(url).hostname === host || new URL(url).hostname.endsWith("." + host),
-        ) as Source | undefined;
-        if (!source) throw new Error("The job source did not match your selected sites.");
+        );
+        if (!source) throw new Error("The job source is not supported.");
         const excluded = preferences.exclusions.some((term) =>
           candidate.title.toLowerCase().includes(term.toLowerCase()),
         );

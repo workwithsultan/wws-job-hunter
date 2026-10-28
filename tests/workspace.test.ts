@@ -19,7 +19,7 @@ import { searchBudget, remainingDays, dailySearchTarget } from "../src/shared/bu
 import { isAssessmentModel } from "../src/server/providers.js";
 import { Runner } from "../src/server/runner.js";
 import { buildApp } from "../src/server/app.js";
-import { defaultPreferences, preferencesSchema } from "../src/shared/model.js";
+import { sourceDomains, defaultPreferences, preferencesSchema } from "../src/shared/model.js";
 import { discoverJobs } from "../src/discovery/serpapi.js";
 import { isJobUrl, extractDescription } from "../src/server/extract.js";
 import { searchLocation } from "../src/shared/search-scope.js";
@@ -317,7 +317,7 @@ test("country and work type affect discovery queries, provider parameters, and p
   assert.match(query, /hybrid/);
   assert.doesNotMatch(query, /remote|United States|USA/);
   assert.deepEqual(searchLocation(scope), { gl: "id", location: "Indonesia" });
-  const preview = buildSearchQueryPreview(["Operations"], 20, defaultPreferences.sources, scope);
+  const preview = buildSearchQueryPreview(["Operations"], 20, sourceDomains, scope);
   assert.match(preview, /Indonesia/);
   assert.doesNotMatch(preview, /remote|United States/);
   for (const body of buildFirstPageSearchQueries(["Operations"], 20, scope))
@@ -359,10 +359,6 @@ test("save readiness follows actual changes and rejects incomplete form input", 
   assert.equal(searchChanged({ ...original, country: "id" }, original), true);
   assert.equal(searchChanged({ ...original, workType: "any" }, original), true);
   assert.equal(
-    searchChanged({ ...original, sources: [...original.sources].reverse() }, original),
-    false,
-  );
-  assert.equal(
     searchChanged({ ...original, scheduleDays: [...original.scheduleDays].reverse() }, original),
     false,
   );
@@ -388,7 +384,7 @@ test("existing preferences retain US remote behavior when upgraded", () => {
     const db = new Database(path);
     try {
       db.prepare("INSERT INTO preferences(id,value) VALUES(1,?)").run(
-        JSON.stringify({ ...previous, limit: 10, threshold: 75 }),
+        JSON.stringify({ ...previous, sources: ["jobs.lever.co"], limit: 10, threshold: 75 }),
       );
     } finally {
       db.close();
@@ -594,6 +590,17 @@ test("profile and search updates preserve each other's saved settings", async ()
           url: "/api/preferences/search",
           headers,
           payload: { resume: null },
+        })
+      ).statusCode,
+      400,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/search",
+          headers,
+          payload: { sources: ["jobs.lever.co"] },
         })
       ).statusCode,
       400,

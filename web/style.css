@@ -1367,22 +1367,27 @@ details summary {
   min-height: 2rem;
   padding: 0.25rem 0.5rem;
 }
-.source-chips {
+.site-list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
 }
-.source-chip {
+.site-list li {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
 }
-.source-chip[aria-pressed="true"] {
-  background: var(--surface);
-  border-color: var(--control);
-  color: var(--foreground);
-}
-.source-chip[aria-pressed="true"] svg {
-  color: var(--primary);
+.site-summary {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
 }
 .search-usage,
 .quota-summary {

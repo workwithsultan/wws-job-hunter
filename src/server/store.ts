@@ -74,6 +74,7 @@ export class Store {
     const value = { ...saved };
     if ("limit" in value) delete value.limit;
     if ("threshold" in value) delete value.threshold;
+    if ("sources" in value) delete value.sources;
     return preferencesSchema.parse({
       resume: null,
       country: defaultPreferences.country,
