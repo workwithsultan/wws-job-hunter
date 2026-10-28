@@ -199,9 +199,9 @@ export function buildApp(
       runner.updatingConnections = false;
     }
   };
-  app.get("/api/openai/models", async (request, reply) => {
-    if (!config.connectionStatus().openai)
-      return reply.code(409).send({ error: "Connect an OpenAI key first." });
+  app.get("/api/openrouter/models", async (request, reply) => {
+    if (!config.connectionStatus().openrouter)
+      return reply.code(409).send({ error: "Connect an OpenRouter key first." });
     try {
       return {
         models: await runner.providers.models(
@@ -215,16 +215,19 @@ export function buildApp(
         .send({ error: error instanceof Error ? error.message : "Models could not be loaded." });
     }
   });
-  app.put("/api/openai/key", async (request, reply) =>
+  app.put("/api/openrouter/key", async (request, reply) =>
     withConnections(reply, async () => {
       const { key } = providerKeySchema.parse(request.body);
       try {
         const models = await runner.providers.models(key, true);
         const current = config.connectionStatus().model;
-        config.update({
-          OPENAI_API_KEY: key,
-          OPENAI_MODEL: models.includes(current) ? current : "",
-        });
+        config.update(
+          {
+            OPENROUTER_API_KEY: key,
+            OPENROUTER_MODEL: models.includes(current) ? current : "",
+          },
+          ["OPENAI_API_KEY", "OPENAI_MODEL"],
+        );
 
         return { ok: true };
       } catch (error) {
@@ -234,19 +237,19 @@ export function buildApp(
       }
     }),
   );
-  app.put("/api/openai/model", async (request, reply) =>
+  app.put("/api/openrouter/model", async (request, reply) =>
     withConnections(reply, async () => {
       const { model } = z
         .object({ model: z.string().min(1).max(150) })
         .strict()
         .parse(request.body);
-      if (!config.connectionStatus().openai)
-        return reply.code(409).send({ error: "Connect an OpenAI key first." });
+      if (!config.connectionStatus().openrouter)
+        return reply.code(409).send({ error: "Connect an OpenRouter key first." });
       try {
         const models = await runner.providers.models();
         if (!models.includes(model))
           return reply.code(400).send({ error: "Choose a model available to this key." });
-        config.update({ OPENAI_MODEL: model });
+        config.update({ OPENROUTER_MODEL: model });
 
         return { ok: true };
       } catch (error) {
@@ -256,9 +259,9 @@ export function buildApp(
       }
     }),
   );
-  app.delete("/api/openai/key", async (_request, reply) =>
+  app.delete("/api/openrouter/key", async (_request, reply) =>
     withConnections(reply, async () => {
-      config.update({ OPENAI_API_KEY: "", OPENAI_MODEL: "" });
+      config.update({ OPENROUTER_API_KEY: "", OPENROUTER_MODEL: "" });
 
       return { ok: true };
     }),

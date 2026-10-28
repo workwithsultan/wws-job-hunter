@@ -11,6 +11,17 @@ export class Configuration {
     if (!existsSync(this.file)) throw new Error("Run npm run setup before starting Job Hunter.");
     chmodSync(this.file, 0o600);
     const values = this.values();
+    const obsoleteEmptyKeys = ["OPENAI_API_KEY", "OPENAI_MODEL"].filter(
+      (key) => key in values && !values[key],
+    );
+    if (obsoleteEmptyKeys.length)
+      this.update(
+        {
+          OPENROUTER_API_KEY: values.OPENROUTER_API_KEY ?? "",
+          OPENROUTER_MODEL: values.OPENROUTER_MODEL ?? "",
+        },
+        obsoleteEmptyKeys,
+      );
     if ("SERPAPI_API_KEY" in values && !("SERPAPI_API_KEYS" in values)) {
       this.update({ SERPAPI_API_KEYS: values.SERPAPI_API_KEY ?? "" }, ["SERPAPI_API_KEY"]);
     }
@@ -25,11 +36,11 @@ export class Configuration {
   connectionStatus(): Connections {
     const values = this.values();
     return {
-      openai: Boolean(values.OPENAI_API_KEY),
-      openaiLastFour: values.OPENAI_API_KEY?.slice(-4) ?? "",
+      openrouter: Boolean(values.OPENROUTER_API_KEY),
+      openrouterLastFour: values.OPENROUTER_API_KEY?.slice(-4) ?? "",
       serpapi: this.serpApiKeys().length > 0,
       serpapiKeys: this.serpApiKeys().map((key) => ({ id: keyId(key), lastFour: key.slice(-4) })),
-      model: values.OPENAI_MODEL ?? "",
+      model: values.OPENROUTER_MODEL ?? "",
     };
   }
   serpApiKeys(): string[] {

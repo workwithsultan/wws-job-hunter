@@ -50,7 +50,7 @@ export function ResumeImport({
       const accepted = await confirm({
         title: resume ? "Replace resume?" : "Upload resume?",
         emoji: "📄",
-        description: `Save ${file.name} (${result.pages} ${result.pages === 1 ? "page" : "pages"}) for job matching? ${resume ? "This replaces your saved resume. " : ""}The PDF stays in your local workspace. Only its extracted text is sent to OpenAI during matching.${result.emptyPages.length ? ` Pages ${result.emptyPages.join(", ")} have no readable text.` : ""}`,
+        description: `Save ${file.name} (${result.pages} ${result.pages === 1 ? "page" : "pages"}) for job matching? ${resume ? "This replaces your saved resume. " : ""}The PDF stays in your local workspace. Only its extracted text is sent through OpenRouter to your selected model provider during matching.${result.emptyPages.length ? ` Pages ${result.emptyPages.join(", ")} have no readable text.` : ""}`,
         action: resume ? "Replace resume" : "Upload resume",
       });
       if (!accepted) return;

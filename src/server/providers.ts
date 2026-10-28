@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import { OpenRouterClient, OpenRouterError } from "./openrouter.js";
 import { z } from "zod";
 import { Configuration, keyId } from "./config.js";
 import type { SerpAccount, SerpQuota } from "../shared/model.js";
@@ -15,37 +15,29 @@ const accountSchema = z.object({
   account_rate_limit_per_hour: z.number().int().nonnegative().optional(),
   this_hour_searches: z.number().int().nonnegative().optional(),
 });
-export function isAssessmentModel(id: string): boolean {
-  return (
-    /^(gpt-(4o|4\.1|[5-9])|o[134])([.-]|$)/.test(id) &&
-    !/(audio|realtime|transcrib|tts|image|embedding|search|codex|chat-latest|deep-research|computer-use)/.test(
-      id,
-    )
-  );
-}
 export class Providers {
   private readonly accounts = new Map<string, { at: number; account: SerpAccount }>();
   private readonly catalogs = new Map<string, { at: number; models: string[] }>();
-  constructor(private readonly config: Configuration) {}
+  constructor(
+    private readonly config: Configuration,
+    private readonly request: typeof fetch = fetch,
+  ) {}
   async models(
-    key = this.config.values().OPENAI_API_KEY ?? "",
+    key = this.config.values().OPENROUTER_API_KEY ?? "",
     refresh = false,
   ): Promise<string[]> {
-    if (!key) throw new Error("Save an OpenAI API key first.");
+    if (!key) throw new Error("Save an OpenRouter API key first.");
     const cached = this.catalogs.get(keyId(key));
     if (!refresh && cached && Date.now() - cached.at < 300000) return cached.models;
     try {
-      const client = new OpenAI({ apiKey: key, timeout: 15000, maxRetries: 0 });
-      const response = await client.models.list();
-      const models = [
-        ...new Set(response.data.map((model) => model.id).filter(isAssessmentModel)),
-      ].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-      if (!models.length) throw new Error("No assessment models are available.");
+      const models = await new OpenRouterClient(key, this.request).models();
       this.catalogs.set(keyId(key), { at: Date.now(), models });
       return models;
-    } catch {
+    } catch (error) {
+      this.catalogs.delete(keyId(key));
+      if (error instanceof OpenRouterError) throw error;
       throw new Error(
-        "Models could not be loaded. Check the OpenAI key, model-list permissions, and connection.",
+        "Models could not be loaded. Check the OpenRouter key, model-list permissions, and connection.",
       );
     }
   }
@@ -56,7 +48,7 @@ export class Providers {
     try {
       const url = new URL("https://serpapi.com/account.json");
       url.searchParams.set("api_key", key);
-      const response = await fetch(url, {
+      const response = await this.request(url, {
         signal: AbortSignal.timeout(15000),
         headers: { Accept: "application/json" },
       });

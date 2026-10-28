@@ -136,8 +136,8 @@ export interface SavedKey {
   lastFour: string;
 }
 export interface Connections {
-  openai: boolean;
-  openaiLastFour: string;
+  openrouter: boolean;
+  openrouterLastFour: string;
   serpapi: boolean;
   serpapiKeys: SavedKey[];
   model: string;

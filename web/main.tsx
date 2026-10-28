@@ -88,7 +88,7 @@ function missingSetup(workspace: Workspace) {
     profile: workspace.preferences.profile.trim().length < 10,
     roles: !workspace.preferences.roles.length,
     providers:
-      !workspace.connections.openai ||
+      !workspace.connections.openrouter ||
       !workspace.connections.serpapi ||
       !workspace.connections.model,
   };
@@ -191,7 +191,7 @@ function App() {
             { label: "Work type", value: workTypes[workspace.preferences.workType] },
             { label: "AI model", value: workspace.connections.model },
           ],
-          description: `Estimated usage: ${budget.searchesPerRun} SerpApi requests before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} New jobs will be matched against your resume using OpenAI.`,
+          description: `Estimated usage: ${budget.searchesPerRun} SerpApi requests before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} Your resume text and job descriptions will be sent through OpenRouter to the selected model provider for matching.`,
           action: "Start search",
         }))
       )
@@ -432,17 +432,17 @@ function App() {
                 target: "/settings#settings-resume",
               },
               {
-                label: "OpenAI key",
-                done: workspace.connections.openai,
-                action: "Connect OpenAI",
-                target: "/settings#openai-key",
+                label: "OpenRouter key",
+                done: workspace.connections.openrouter,
+                action: "Connect OpenRouter",
+                target: "/settings#openrouter-key",
               },
               {
                 label: "AI model",
                 done: Boolean(workspace.connections.model),
-                blocked: !workspace.connections.openai,
+                blocked: !workspace.connections.openrouter,
                 action: "Choose model",
-                target: "/settings#openai-model",
+                target: "/settings#openrouter-model",
               },
               {
                 label: "SerpApi key",

@@ -22,7 +22,7 @@ import { join, resolve } from "node:path";
 import { Store } from "../src/server/store.js";
 import { Configuration } from "../src/server/config.js";
 import { searchBudget, remainingDays, dailySearchTarget } from "../src/shared/budget.js";
-import { isAssessmentModel } from "../src/server/providers.js";
+import { isAssessmentModel } from "../src/server/openrouter.js";
 import { Runner } from "../src/server/runner.js";
 import { buildApp } from "../src/server/app.js";
 import { sourceDomains, defaultPreferences, preferencesSchema } from "../src/shared/model.js";
@@ -41,7 +41,7 @@ function installation() {
   const directory = mkdtempSync(join(tmpdir(), "job-hunter-check-"));
   writeFileSync(
     join(directory, ".env.local"),
-    "APP_HOST=127.0.0.1\nPORT=8790\nDATA_DIR=./data\nOPENAI_API_KEY=\nSERPAPI_API_KEY=\nOPENAI_MODEL=\n",
+    "APP_HOST=127.0.0.1\nPORT=8790\nDATA_DIR=./data\nOPENROUTER_API_KEY=\nSERPAPI_API_KEY=\nOPENROUTER_MODEL=\n",
     { mode: 0o600 },
   );
   const store = new Store(join(directory, "workspace.sqlite"));
@@ -72,7 +72,7 @@ test("a new installation starts without jobs, runs, profile data, or provider ke
     assert.deepEqual(item.store.runs(), []);
     assert.equal(item.store.preferences().profile, "");
     assert.deepEqual(item.store.preferences().roles, []);
-    assert.equal(item.config.connectionStatus().openai, false);
+    assert.equal(item.config.connectionStatus().openrouter, false);
     assert.equal(item.config.connectionStatus().serpapi, false);
   } finally {
     item.cleanup();
@@ -142,7 +142,7 @@ test("environment changes are atomic and the credential file is private", () => 
   const item = installation();
   try {
     const before = item.config.values();
-    assert.throws(() => item.config.update({ OPENAI_MODEL: "\nPORT=1" }));
+    assert.throws(() => item.config.update({ OPENROUTER_MODEL: "\nPORT=1" }));
     assert.deepEqual(item.config.values(), before);
     if (process.platform !== "win32") assert.equal(statSync(item.config.file).mode & 0o777, 0o600);
   } finally {
@@ -158,7 +158,7 @@ test("API origin, host, validation and empty-state boundaries", async () => {
     const workspace = await app.inject({ url: "/api/workspace", headers: base });
     assert.equal(workspace.statusCode, 200);
     assert.equal(workspace.json().totals.jobs, 0);
-    assert.equal("OPENAI_API_KEY" in workspace.json(), false);
+    assert.equal("OPENROUTER_API_KEY" in workspace.json(), false);
     assert.equal(
       (await app.inject({ url: "/api/workspace", headers: { host: "untrusted.invalid" } }))
         .statusCode,
@@ -254,12 +254,15 @@ test("provider metadata stays unavailable rather than invented before keys are c
     assert.deepEqual(item.config.connectionStatus().serpapiKeys, []);
     assert.equal("SERPAPI_API_KEY" in item.config.values(), false);
     assert.equal(item.config.values().SERPAPI_API_KEYS, "");
-    assert.equal((await app.inject({ url: "/api/openai/models", headers: read })).statusCode, 409);
+    assert.equal(
+      (await app.inject({ url: "/api/openrouter/models", headers: read })).statusCode,
+      409,
+    );
     assert.equal(
       (
         await app.inject({
           method: "PUT",
-          url: "/api/openai/key",
+          url: "/api/openrouter/key",
           headers: write,
           payload: { key: "" },
         })
@@ -283,7 +286,7 @@ test("provider metadata stays unavailable rather than invented before keys are c
       (
         await app.inject({
           method: "PUT",
-          url: "/api/openai/model",
+          url: "/api/openrouter/model",
           headers: write,
           payload: { model: "gpt-4o" },
         })
@@ -310,9 +313,20 @@ test("unknown quota is not reported as zero and model choices exclude unrelated 
   assert.equal(budget.dailyTarget, null);
   assert.equal(budget.searchesPerRun, null);
   assert.equal(remainingDays("2026-11-27", "Asia/Jakarta", new Date("2026-10-28T05:00:00Z")), 30);
-  assert.equal(isAssessmentModel("gpt-4o"), true);
-  assert.equal(isAssessmentModel("text-embedding-3-small"), false);
-  assert.equal(isAssessmentModel("gpt-4o-realtime-preview"), false);
+  const model = {
+    id: "vendor/text-model",
+    architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+    supported_parameters: ["response_format", "structured_outputs"],
+  };
+  assert.equal(isAssessmentModel(model), true);
+  assert.equal(isAssessmentModel({ ...model, supported_parameters: ["response_format"] }), false);
+  assert.equal(
+    isAssessmentModel({
+      ...model,
+      architecture: { input_modalities: ["text"], output_modalities: ["embeddings"] },
+    }),
+    false,
+  );
 });
 
 test("country and work type affect discovery queries, provider parameters, and previews", () => {

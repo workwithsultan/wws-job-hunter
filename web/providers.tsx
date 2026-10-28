@@ -60,9 +60,9 @@ export function ProviderSettings({
   reload: () => Promise<void>;
   active: boolean;
 }) {
-  const [openaiKey, setOpenaiKey] = useState("");
+  const [openrouterKey, setOpenrouterKey] = useState("");
   const [serpapiKey, setSerpapiKey] = useState("");
-  const [editOpenai, setEditOpenai] = useState(false);
+  const [editOpenrouter, setEditOpenrouter] = useState(false);
   const [modelRevision, setModelRevision] = useState(0);
   const modelRequest = useRef(0);
   const [models, setModels] = useState<string[]>([]);
@@ -71,7 +71,7 @@ export function ProviderSettings({
   const [busy, setBusy] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState<{
-    provider: "openai" | "serpapi";
+    provider: "openrouter" | "serpapi";
     message: string;
   } | null>(null);
   const confirm = useConfirm();
@@ -82,13 +82,13 @@ export function ProviderSettings({
     failure: quotaFailure,
     load: loadQuota,
   } = useQuota(workspace.connections.serpapiKeys, active, workspace.running);
-  useDraftWarning(Boolean(openaiKey || serpapiKey));
+  useDraftWarning(Boolean(openrouterKey || serpapiKey));
   useActivity(Boolean(busy), "write");
   useActivity(quotaLoading, "busy");
   const loadModels = useCallback(
     async (refresh = false) => {
       const request = ++modelRequest.current;
-      if (!workspace.connections.openai) {
+      if (!workspace.connections.openrouter) {
         setModels([]);
         setModelsError("");
         setModelsLoading(false);
@@ -97,7 +97,7 @@ export function ProviderSettings({
       setModelsLoading(true);
       try {
         const result = await api<{ models: string[] }>(
-          "/api/openai/models" + (refresh ? "?refresh=true" : ""),
+          "/api/openrouter/models" + (refresh ? "?refresh=true" : ""),
         );
         if (request !== modelRequest.current) return;
         setModels(result.models);
@@ -110,7 +110,7 @@ export function ProviderSettings({
         if (request === modelRequest.current) setModelsLoading(false);
       }
     },
-    [workspace.connections.openai, workspace.connections.openaiLastFour, modelRevision],
+    [workspace.connections.openrouter, workspace.connections.openrouterLastFour, modelRevision],
   );
   useEffect(() => {
     if (active) void loadModels();
@@ -118,10 +118,10 @@ export function ProviderSettings({
       modelRequest.current++;
     };
   }, [active, loadModels]);
-  const connect = async (event: FormEvent, provider: "openai" | "serpapi") => {
+  const connect = async (event: FormEvent, provider: "openrouter" | "serpapi") => {
     event.preventDefault();
     if (busy || workspace.running || interaction.writing) return;
-    const key = provider === "openai" ? openaiKey : serpapiKey;
+    const key = provider === "openrouter" ? openrouterKey : serpapiKey;
     const parsed = providerKeySchema.safeParse({ key });
     if (!parsed.success) {
       setErrors((v) => ({ ...v, [provider]: parsed.error.issues[0]!.message }));
@@ -131,10 +131,10 @@ export function ProviderSettings({
     if (
       !(await confirm({
         title:
-          provider === "openai" && workspace.connections.openai
-            ? "Replace OpenAI key?"
+          provider === "openrouter" && workspace.connections.openrouter
+            ? "Replace OpenRouter key?"
             : "Connect API key?",
-        description: `Connect the ${provider === "openai" ? "OpenAI" : "SerpApi"} key ending ${parsed.data.key.slice(-4)}? Its ${provider === "openai" ? "available models" : "account quota"} will be checked.`,
+        description: `Connect the ${provider === "openrouter" ? "OpenRouter" : "SerpApi"} key ending ${parsed.data.key.slice(-4)}? Its ${provider === "openrouter" ? "available models" : "account quota"} will be checked.`,
         action: "Connect key",
         emoji: "🔑",
       }))
@@ -145,18 +145,18 @@ export function ProviderSettings({
     setErrors((v) => ({ ...v, [provider]: "" }));
     try {
       await api(
-        provider === "openai" ? "/api/openai/key" : "/api/serpapi/keys",
-        provider === "openai" ? "PUT" : "POST",
+        provider === "openrouter" ? "/api/openrouter/key" : "/api/serpapi/keys",
+        provider === "openrouter" ? "PUT" : "POST",
         parsed.data,
       );
-      if (provider === "openai") {
-        setOpenaiKey("");
-        setEditOpenai(false);
+      if (provider === "openrouter") {
+        setOpenrouterKey("");
+        setEditOpenrouter(false);
       } else {
         setSerpapiKey("");
       }
       await reload();
-      if (provider === "openai") setModelRevision((value) => value + 1);
+      if (provider === "openrouter") setModelRevision((value) => value + 1);
     } catch (error) {
       if (error instanceof ApiError && error.fields.key)
         setErrors((v) => ({ ...v, [provider]: error.fields.key! }));
@@ -180,9 +180,9 @@ export function ProviderSettings({
       return;
     if (
       !(await confirm({
-        title: "Change OpenAI model?",
+        title: "Change OpenRouter model?",
         emoji: "🤖",
-        description: "Use this model for future job matching. It will use your OpenAI account.",
+        description: "Use this model for future job matching. It will use your OpenRouter account.",
         details: [{ label: "Model", value: model }],
         action: "Use model",
       }))
@@ -191,7 +191,7 @@ export function ProviderSettings({
     setBusy("model");
     setModelsError("");
     try {
-      await api("/api/openai/model", "PUT", { model });
+      await api("/api/openrouter/model", "PUT", { model });
       await reload();
     } catch (error) {
       setModelsError(error instanceof Error ? error.message : "The model could not be saved.");
@@ -199,14 +199,14 @@ export function ProviderSettings({
       setBusy("");
     }
   };
-  const remove = async (provider: "openai" | "serpapi", key?: SavedKey) => {
+  const remove = async (provider: "openrouter" | "serpapi", key?: SavedKey) => {
     if (
       busy ||
       workspace.running ||
       interaction.writing ||
       !(await confirm({
         title: "Remove API key?",
-        description: `Remove the ${provider === "openai" ? "OpenAI" : "SerpApi"} key ending ${key?.lastFour ?? workspace.connections.openaiLastFour}? ${provider === "openai" || workspace.connections.serpapiKeys.length === 1 ? "Connect this provider again before running another search." : "The search budget will be recalculated."}`,
+        description: `Remove the ${provider === "openrouter" ? "OpenRouter" : "SerpApi"} key ending ${key?.lastFour ?? workspace.connections.openrouterLastFour}? ${provider === "openrouter" || workspace.connections.serpapiKeys.length === 1 ? "Connect this provider again before running another search." : "The search budget will be recalculated."}`,
         action: "Remove key",
         destructive: true,
       }))
@@ -216,7 +216,7 @@ export function ProviderSettings({
     setFailure(null);
     try {
       await api(
-        provider === "openai" ? "/api/openai/key" : "/api/serpapi/keys/" + key!.id,
+        provider === "openrouter" ? "/api/openrouter/key" : "/api/serpapi/keys/" + key!.id,
         "DELETE",
         {},
       );
@@ -234,31 +234,38 @@ export function ProviderSettings({
   const locked = Boolean(busy) || workspace.running || interaction.writing;
   return (
     <>
-      <section className="provider-section provider-openai" aria-labelledby="openai-heading">
-        {failure?.provider === "openai" && <Alert>{failure.message}</Alert>}
+      <section
+        className="provider-section provider-openrouter"
+        aria-labelledby="openrouter-heading"
+      >
+        {failure?.provider === "openrouter" && <Alert>{failure.message}</Alert>}
         <div className="provider-heading">
-          <h2 id="openai-heading">
-            <Emoji>🤖</Emoji>OpenAI
+          <h2 id="openrouter-heading">
+            <Emoji>🤖</Emoji>OpenRouter
           </h2>
-          {workspace.connections.openai && (
+          {workspace.connections.openrouter && (
             <span className="connection-state">
               <Check />
               Key saved
             </span>
           )}
         </div>
-        {workspace.connections.openai && !editOpenai ? (
+        {workspace.connections.openrouter && !editOpenrouter ? (
           <div className="saved-key">
-            <code>•••• {workspace.connections.openaiLastFour}</code>
+            <code>•••• {workspace.connections.openrouterLastFour}</code>
             <div>
-              <button id="change-openai-key" disabled={locked} onClick={() => setEditOpenai(true)}>
+              <button
+                id="change-openrouter-key"
+                disabled={locked}
+                onClick={() => setEditOpenrouter(true)}
+              >
                 Change key
               </button>
               <button
                 className="icon-button ghost danger-text"
                 disabled={locked}
-                aria-label="Remove OpenAI key"
-                onClick={() => void remove("openai")}
+                aria-label="Remove OpenRouter key"
+                onClick={() => void remove("openrouter")}
               >
                 <Trash2 />
               </button>
@@ -268,52 +275,58 @@ export function ProviderSettings({
           <form
             className="connect-form"
             noValidate
-            onSubmit={(event) => void connect(event, "openai")}
+            onSubmit={(event) => void connect(event, "openrouter")}
           >
-            <Field id="openai-key" label="OpenAI API key (required)" error={errors.openai}>
+            <Field
+              id="openrouter-key"
+              label="OpenRouter API key (required)"
+              error={errors.openrouter}
+            >
               <input
                 type="password"
                 autoComplete="new-password"
-                value={openaiKey}
+                value={openrouterKey}
                 onBlur={() => {
-                  if (openaiKey) {
-                    const checked = providerKeySchema.safeParse({ key: openaiKey });
+                  if (openrouterKey) {
+                    const checked = providerKeySchema.safeParse({ key: openrouterKey });
                     setErrors((value) => ({
                       ...value,
-                      openai: checked.success ? "" : checked.error.issues[0]!.message,
+                      openrouter: checked.success ? "" : checked.error.issues[0]!.message,
                     }));
                   }
                 }}
                 maxLength={500}
                 disabled={locked}
                 onChange={(event) => {
-                  setOpenaiKey(event.target.value);
-                  setErrors((v) => ({ ...v, openai: "" }));
+                  setOpenrouterKey(event.target.value);
+                  setErrors((v) => ({ ...v, openrouter: "" }));
                 }}
               />
             </Field>
             <div className="connect-actions">
               <button
                 className="primary"
-                disabled={locked || !providerKeySchema.safeParse({ key: openaiKey }).success}
+                disabled={locked || !providerKeySchema.safeParse({ key: openrouterKey }).success}
               >
-                <PendingLabel pending={busy === "openai"} idle="Connect" busy="Connecting…" />
+                <PendingLabel pending={busy === "openrouter"} idle="Connect" busy="Connecting…" />
               </button>
-              {(editOpenai || openaiKey) && (
+              {(editOpenrouter || openrouterKey) && (
                 <button
                   type="button"
                   disabled={locked}
                   onClick={() => {
-                    setOpenaiKey("");
-                    setEditOpenai(false);
+                    setOpenrouterKey("");
+                    setEditOpenrouter(false);
                     requestAnimationFrame(() =>
                       document
                         .getElementById(
-                          workspace.connections.openai ? "change-openai-key" : "openai-key",
+                          workspace.connections.openrouter
+                            ? "change-openrouter-key"
+                            : "openrouter-key",
                         )
                         ?.focus(),
                     );
-                    setErrors((v) => ({ ...v, openai: "" }));
+                    setErrors((v) => ({ ...v, openrouter: "" }));
                   }}
                 >
                   Cancel
@@ -322,21 +335,21 @@ export function ProviderSettings({
             </div>
           </form>
         )}
-        <Field id="openai-model" label="Model (required)">
+        <Field id="openrouter-model" label="Model (required)">
           <Choice
             value={workspace.connections.model}
             onChange={(value) => void selectModel(value)}
-            label="OpenAI model"
+            label="OpenRouter model"
             aria-busy={modelsLoading}
             placeholder={
-              !workspace.connections.openai
+              !workspace.connections.openrouter
                 ? "Connect an API key first"
                 : modelsLoading
                   ? "Loading models…"
                   : "Choose a model"
             }
             disabled={
-              !workspace.connections.openai || modelsLoading || locked || models.length === 0
+              !workspace.connections.openrouter || modelsLoading || locked || models.length === 0
             }
             options={models.map((value) => ({ value, label: value }))}
           />
