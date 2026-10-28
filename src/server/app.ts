@@ -12,6 +12,7 @@ import {
   preferencesSchema,
   profilePreferencesSchema,
   searchPreferencesSchema,
+  promptPreferencesSchema,
   jobUpdateSchema,
   providerKeySchema,
   statusSchema,
@@ -185,6 +186,12 @@ export function buildApp(
   app.patch("/api/preferences/search", async (request, reply) =>
     savePreferences(
       { ...store.preferences(), ...searchPreferencesSchema.parse(request.body) },
+      reply,
+    ),
+  );
+  app.patch("/api/preferences/prompt", async (request, reply) =>
+    savePreferences(
+      { ...store.preferences(), ...promptPreferencesSchema.parse(request.body) },
       reply,
     ),
   );

@@ -71,6 +71,7 @@ import {
 import { SearchLogs } from "./search-logs";
 import { JobQuota } from "./job-quota";
 import { SearchProgress } from "./search-progress";
+import { PromptSettings } from "./prompt-settings";
 import "./style.css";
 
 const storedTheme = localStorage.getItem("jobHunterAppearance") ?? "system";
@@ -1464,19 +1465,27 @@ function SettingsPage({
 }) {
   const [params] = useSearchParams();
   const connections = params.get("tab") === "connections";
+  const prompt = params.get("tab") === "prompt";
+  const searchSetup = !connections && !prompt;
   return (
     <div className="settings-layout">
       <nav className="settings-tabs" aria-label="Settings sections">
-        <Link to="/settings" aria-current={!connections ? "page" : undefined}>
+        <Link to="/settings" aria-current={searchSetup ? "page" : undefined}>
           Search setup
         </Link>
         <Link to="/settings?tab=connections" aria-current={connections ? "page" : undefined}>
           Connections
         </Link>
+        <Link to="/settings?tab=prompt" aria-current={prompt ? "page" : undefined}>
+          AI prompt
+        </Link>
       </nav>
-      <div hidden={connections} className="settings-search">
-        <ResumeSection workspace={workspace} reload={reload} active={active && !connections} />
-        <SearchPage workspace={workspace} reload={reload} active={active && !connections} />
+      <div hidden={!searchSetup} className="settings-search">
+        <ResumeSection workspace={workspace} reload={reload} active={active && searchSetup} />
+        <SearchPage workspace={workspace} reload={reload} active={active && searchSetup} />
+      </div>
+      <div hidden={!prompt}>
+        <PromptSettings workspace={workspace} reload={reload} />
       </div>
       <div hidden={!connections} className="settings-connections">
         <ProviderSettings workspace={workspace} reload={reload} active={active && connections} />

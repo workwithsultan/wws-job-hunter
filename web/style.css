@@ -2199,3 +2199,20 @@ h2 {
   display: grid;
   gap: 1.5rem;
 }
+
+.prompt-settings {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.prompt-description {
+  color: var(--muted);
+  margin: 0;
+  line-height: 1.6;
+}
+.prompt-settings textarea {
+  width: 100%;
+  min-height: 24rem;
+  line-height: 1.65;
+  resize: vertical;
+}

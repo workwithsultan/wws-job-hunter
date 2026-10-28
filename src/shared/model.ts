@@ -1,3 +1,4 @@
+import { defaultAssessmentPrompt, assessmentPromptSchema } from "./assessment-prompt.js";
 import type { Assessment } from "./assessment.js";
 import { z } from "zod";
 import { resumeMetadataSchema } from "./resume.js";
@@ -65,13 +66,23 @@ export const preferencesSchema = z
     resume: resumeMetadataSchema.nullable(),
     roles: terms,
     exclusions: terms,
+    assessmentPrompt: assessmentPromptSchema.default(defaultAssessmentPrompt),
   })
   .strict()
   .refine((value) => !value.resume || value.profile.trim().length >= 10, {
     message: "Import readable resume text before saving.",
     path: ["profile"],
   });
-const { profile: profileField, resume: resumeField, ...searchFields } = preferencesSchema.shape;
+const { profile: profileField, resume: resumeField } = preferencesSchema.shape;
+const searchFields = {
+  country: preferencesSchema.shape.country,
+  workType: preferencesSchema.shape.workType,
+  roles: preferencesSchema.shape.roles,
+  exclusions: preferencesSchema.shape.exclusions,
+};
+export const promptPreferencesSchema = z
+  .object({ assessmentPrompt: assessmentPromptSchema })
+  .strict();
 export const profilePreferencesSchema = z
   .object({ profile: profileField, resume: resumeField })
   .partial()
@@ -90,6 +101,7 @@ export const defaultPreferences: Preferences = {
   resume: null,
   roles: [],
   exclusions: [],
+  assessmentPrompt: defaultAssessmentPrompt,
 };
 export interface Job {
   id: number;

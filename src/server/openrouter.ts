@@ -30,10 +30,12 @@ const completionSchema = z.object({
     .min(1),
 });
 export class OpenRouterError extends Error {}
-function requestError(status: number): OpenRouterError {
+function requestError(status: number, expired = false): OpenRouterError {
   const message =
     status === 401
-      ? "The OpenRouter key is invalid or expired. Reconnect it in Settings."
+      ? expired
+        ? "The OpenRouter key has expired. Replace it in Settings → Connections."
+        : "OpenRouter rejected this key (401). Check or replace it in Settings → Connections."
       : status === 402
         ? "OpenRouter credits or the key spending limit are insufficient. Check your OpenRouter account."
         : status === 403
@@ -77,7 +79,21 @@ export class OpenRouterClient {
         "OpenRouter could not be reached or timed out. Check your connection and try again.",
       );
     }
-    if (!response.ok) throw requestError(response.status);
+    if (!response.ok) {
+      let expired = false;
+      if (response.status === 401) {
+        try {
+          const error = z
+            .object({ error: z.object({ message: z.string() }) })
+            .safeParse(await response.json());
+          expired =
+            error.success && /\b(?:api )?key (?:has )?expired\b/i.test(error.data.error.message);
+        } catch {
+          /* Keep the authentication error explicit without exposing upstream content. */
+        }
+      }
+      throw requestError(response.status, expired);
+    }
     let value: unknown;
     try {
       value = await response.json();

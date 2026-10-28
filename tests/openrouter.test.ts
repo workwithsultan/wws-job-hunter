@@ -68,7 +68,7 @@ test("OpenRouter rejects invalid keys and empty compatible catalogs without a st
   };
   await assert.rejects(
     new OpenRouterClient("unit-test-key", denied).models(),
-    /key is invalid or expired/,
+    /rejected this key \(401\)/,
   );
   assert.equal(calls, 1);
   const unsupported: typeof fetch = async (input) =>
@@ -234,4 +234,21 @@ test("connecting and rotating OpenRouter keys verifies metadata before saving an
     store.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("only explicit key-expired responses are presented as expiry, and upstream details stay private", async () => {
+  const expired: typeof fetch = async () =>
+    Response.json({ error: { code: 401, message: "API key expired" } }, { status: 401 });
+  await assert.rejects(new OpenRouterClient("unit-test-key", expired).models(), /key has expired/);
+  const denied: typeof fetch = async () =>
+    Response.json(
+      { error: { code: 401, message: "User not found: private-account-details" } },
+      { status: 401 },
+    );
+  await assert.rejects(new OpenRouterClient("unit-test-key", denied).models(), (error) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /rejected this key \(401\)/);
+    assert.doesNotMatch(error.message, /expired|private-account-details/);
+    return true;
+  });
 });

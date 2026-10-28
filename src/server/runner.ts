@@ -64,9 +64,17 @@ export class Runner {
     signal: AbortSignal,
   ): Promise<void> {
     const counts = { found: 0, added: 0, matches: 0, review: 0 };
-    let stage = "quota";
+    let stage = "connections";
     try {
       this.store.progress(id, counts, "Checking provider accounts…");
+      signal.throwIfAborted();
+      const models = await this.providers.models(credentials.OPENROUTER_API_KEY, true);
+      signal.throwIfAborted();
+      if (!models.includes(credentials.OPENROUTER_MODEL!))
+        throw new OpenRouterError(
+          "The selected model is unavailable for this key. Choose a model in Settings → Connections.",
+        );
+      stage = "quota";
       const quota = await this.providers.quota(true);
       signal.throwIfAborted();
       const keys = this.providers.searchKeys(quota);
@@ -196,13 +204,17 @@ export class Runner {
       this.store.finishRun(
         id,
         "failed",
-        stage === "quota"
-          ? "SerpApi quota could not be verified, or no searches are available right now. Check your accounts in Settings."
-          : stage === "discovery"
-            ? "Discovery could not complete. Check SerpApi credentials, quota, and provider availability. No successful empty result is assumed."
-            : error instanceof OpenRouterError
-              ? error.message + " Unprocessed jobs remain available for the next search."
-              : "AI assessment could not complete. Check your OpenRouter key, model access, and credits. Unprocessed jobs remain available for the next search.",
+        stage === "connections"
+          ? error instanceof Error
+            ? error.message
+            : "OpenRouter could not be verified. Check Settings → Connections."
+          : stage === "quota"
+            ? "SerpApi quota could not be verified, or no searches are available right now. Check your accounts in Settings."
+            : stage === "discovery"
+              ? "Discovery could not complete. Check SerpApi credentials, quota, and provider availability. No successful empty result is assumed."
+              : error instanceof OpenRouterError
+                ? error.message + " Unprocessed jobs remain available for the next search."
+                : "AI assessment could not complete. Check your OpenRouter key, model access, and credits. Unprocessed jobs remain available for the next search.",
       );
     }
   }

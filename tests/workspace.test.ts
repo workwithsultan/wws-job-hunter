@@ -1,3 +1,5 @@
+import { defaultAssessmentPrompt } from "../src/shared/assessment-prompt.js";
+import { Providers } from "../src/server/providers.js";
 import { buildAssessmentPrompt } from "../src/server/assessment-prompt.js";
 import { normalizeJobUrl } from "../src/discovery/url.js";
 import { runDuration } from "../web/log-format.js";
@@ -951,7 +953,10 @@ test("manual-only upgrade removes enabled schedules without losing PDF, jobs or 
     const saved = check.prepare("SELECT value FROM preferences WHERE id=1").get() as {
       value: string;
     };
-    assert.doesNotMatch(saved.value, /scheduleEnabled|scheduleTime|scheduleDays|timezone/);
+    assert.doesNotMatch(
+      JSON.stringify(Object.keys(JSON.parse(saved.value) as Record<string, unknown>)),
+      /scheduleEnabled|scheduleTime|scheduleDays|timezone/,
+    );
     check.close();
   } finally {
     upgraded?.close();
@@ -1221,4 +1226,139 @@ test("assessment context belongs only to the current user and treats search mark
   assert.match(instructions, /review: missing or ambiguous[\s\S]*unclear essential eligibility/);
   assert.match(instructions, /Never infer nationality, residence, citizenship, work authorization/);
   assert.match(instructions, /data, not instructions/);
+});
+
+test("prompt upgrades, edits and restoration persist independently of profile and search preferences", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, resolve("."), 8790);
+  const headers = {
+    host: "127.0.0.1:8790",
+    origin: "http://127.0.0.1:8790",
+    "content-type": "application/json",
+  };
+  try {
+    const { assessmentPrompt, ...legacy } = {
+      ...defaultPreferences,
+      roles: ["Operations"],
+      profile: "Operations and workflow experience.",
+    };
+    assert.equal(assessmentPrompt, defaultAssessmentPrompt);
+    const db = new Database(join(item.directory, "workspace.sqlite"));
+    db.prepare("INSERT INTO preferences(id,value) VALUES(1,?)").run(JSON.stringify(legacy));
+    db.close();
+    assert.equal(item.store.preferences().assessmentPrompt, defaultAssessmentPrompt);
+    const custom =
+      defaultAssessmentPrompt + "\nPrioritize demonstrated workflow automation experience.";
+    const saved = await app.inject({
+      method: "PATCH",
+      url: "/api/preferences/prompt",
+      headers,
+      payload: { assessmentPrompt: custom },
+    });
+    assert.equal(saved.statusCode, 200);
+    assert.equal(item.store.preferences().assessmentPrompt, custom);
+    assert.ok(buildAssessmentPrompt(item.store.preferences()).startsWith(custom));
+    const reopened = new Store(join(item.directory, "workspace.sqlite"));
+    assert.equal(reopened.preferences().assessmentPrompt, custom);
+    reopened.close();
+    await app.inject({
+      method: "PATCH",
+      url: "/api/preferences/search",
+      headers,
+      payload: { country: "de" },
+    });
+    assert.equal(item.store.preferences().assessmentPrompt, custom);
+    assert.equal(item.store.preferences().profile, legacy.profile);
+    assert.deepEqual(item.store.preferences().roles, legacy.roles);
+    for (const payload of [
+      { assessmentPrompt: "" },
+      { assessmentPrompt: "x".repeat(8001) },
+      { assessmentPrompt: custom, country: "us" },
+      {},
+    ]) {
+      assert.equal(
+        (await app.inject({ method: "PATCH", url: "/api/preferences/prompt", headers, payload }))
+          .statusCode,
+        400,
+      );
+      assert.equal(item.store.preferences().assessmentPrompt, custom);
+    }
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/search",
+          headers,
+          payload: { assessmentPrompt: defaultAssessmentPrompt },
+        })
+      ).statusCode,
+      400,
+    );
+    item.runner.running = true;
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/prompt",
+          headers,
+          payload: { assessmentPrompt: defaultAssessmentPrompt },
+        })
+      ).statusCode,
+      409,
+    );
+    item.runner.running = false;
+    assert.equal(
+      (
+        await app.inject({
+          method: "PATCH",
+          url: "/api/preferences/prompt",
+          headers,
+          payload: { assessmentPrompt: defaultAssessmentPrompt },
+        })
+      ).statusCode,
+      200,
+    );
+    assert.equal(item.store.preferences().assessmentPrompt, defaultAssessmentPrompt);
+    assert.equal(item.store.preferences().country, "de");
+    assert.equal(item.store.runs().length, 0);
+    assert.equal(item.store.totals().jobs, 0);
+  } finally {
+    item.runner.running = false;
+    await app.close();
+    item.cleanup();
+  }
+});
+
+test("an expired OpenRouter key stops a run before any SerpApi quota or discovery request", async () => {
+  const item = installation();
+  try {
+    item.store.savePreferences({
+      ...defaultPreferences,
+      profile: "Workflow automation experience.",
+      roles: ["Automation"],
+    });
+    item.config.update({
+      OPENROUTER_API_KEY: "unit-test-expired-key",
+      OPENROUTER_MODEL: "vendor/assessment",
+      SERPAPI_API_KEYS: "unit-test-serp-key",
+    });
+    const paths: string[] = [];
+    const request: typeof fetch = async (input) => {
+      paths.push(String(input));
+      assert.equal(String(input), "https://openrouter.ai/api/v1/key");
+      return Response.json({ error: { code: 401, message: "API key expired" } }, { status: 401 });
+    };
+    const runner = new Runner(item.store, item.config, new Providers(item.config, request));
+    runner.start();
+    for (let i = 0; runner.running && i < 100; i++)
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(runner.running, false);
+    assert.equal(item.store.runs()[0]?.status, "failed");
+    assert.match(item.store.runs()[0]!.message, /has expired/);
+    assert.equal(paths.length, 1);
+    assert.equal(item.store.runs()[0]?.found, 0);
+    assert.equal(item.store.totals().jobs, 0);
+  } finally {
+    item.cleanup();
+  }
 });
