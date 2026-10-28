@@ -2,7 +2,7 @@ import { existsSync, writeFileSync } from "node:fs";
 if (!existsSync(".env.local")) {
   writeFileSync(
     ".env.local",
-    "APP_HOST=127.0.0.1\nPORT=8790\nDATA_DIR=./data\nOPENAI_API_KEY=\nOPENAI_MODEL=\nSERPAPI_API_KEY=\n",
+    "APP_HOST=127.0.0.1\nPORT=8790\nDATA_DIR=./data\nOPENAI_API_KEY=\nOPENAI_MODEL=\nSERPAPI_API_KEYS=\n",
     { mode: 0o600, flag: "wx" },
   );
 }

@@ -8,7 +8,7 @@ API keys are plaintext on the server in `.env.local`, not encrypted. The local o
 
 Job text is untrusted. It is displayed as text and passed to the scorer as data, not executed or rendered as HTML. Extracted URLs must use HTTPS and supported ATS hosts. Redirects outside supported job sites are rejected. Job content is limited in size; database queries use bound parameters. CSV text beginning with spreadsheet formula characters is escaped.
 
-Your profile is sent to OpenAI when scoring runs. Search keywords are sent to SerpApi. The app makes no provider request merely because a key is saved, and does not verify access until a real search is requested. The provider labels distinguish a saved key from a verified connection. Use provider-side limits appropriate to your budget.
+Your profile is sent to OpenAI when scoring runs. Search keywords are sent to SerpApi. Connecting an OpenAI key retrieves available models. Connecting or refreshing SerpApi keys reads account quota. Saved connections also load this metadata when Settings is opened. These requests do not start job discovery or scoring. Raw provider account responses, email addresses, and keys are not returned to the browser. Searches verify quota before proceeding. Use provider-side limits appropriate to your budget.
 
 Before sharing source, run checks, build, tests, and dependency audit. Package through the allowlist script. Never upload the working directory, `.env.local`, data, backups, or browser profiles. This repository must not inherit the private historical project's Git history.
 

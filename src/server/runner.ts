@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { Providers } from "./providers.js";
+import { searchBudget } from "../shared/budget.js";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { Cron } from "croner";
@@ -16,13 +18,17 @@ const resultSchema = z.object({
 });
 export class Runner {
   running = false;
+  updatingConnections = false;
+  readonly providers: Providers;
   private schedule: Cron | undefined;
   private task: Promise<void> | undefined;
   private cancellation: AbortController | undefined;
   constructor(
     private readonly store: Store,
     private readonly config: Configuration,
-  ) {}
+  ) {
+    this.providers = new Providers(config);
+  }
   nextRun(): string | null {
     return this.schedule?.nextRun()?.toISOString() ?? null;
   }
@@ -68,6 +74,8 @@ export class Runner {
     );
   }
   start(trigger: SearchRun["trigger"]): number {
+    if (this.updatingConnections)
+      throw new Error("Wait for the provider connection update to finish.");
     if (this.running) throw new Error("A search is already running. Wait for it to finish.");
     const missing = this.missing();
     if (missing.length) throw new Error(missing.join(". ") + ".");
@@ -96,11 +104,17 @@ export class Runner {
     signal: AbortSignal,
   ): Promise<void> {
     const counts = { found: 0, added: 0, ready: 0, review: 0 };
-    let stage = "discovery";
+    let stage = "quota";
     try {
+      const quota = await this.providers.quota(true);
+      signal.throwIfAborted();
+      const keys = this.providers.searchKeys(quota);
+      if (!keys.length) throw new Error("No SerpApi account has searches available.");
+      const budget = searchBudget(quota, preferences);
+      stage = "discovery";
       const discovered = await discoverJobs(
-        credentials.SERPAPI_API_KEY!,
-        preferences.limit,
+        keys.join(","),
+        budget.limitPerSource,
         preferences.roles,
         preferences.sources,
         signal,
@@ -229,9 +243,11 @@ export class Runner {
       this.store.finishRun(
         id,
         "failed",
-        stage === "discovery"
-          ? "Discovery could not complete. Check SerpApi credentials, quota, and provider availability. No successful empty result is assumed."
-          : "AI scoring could not complete. Check your OpenAI key, model access, and quota. Unprocessed jobs remain available for the next search.",
+        stage === "quota"
+          ? "SerpApi quota could not be verified, or no searches are available right now. Check your accounts in Settings."
+          : stage === "discovery"
+            ? "Discovery could not complete. Check SerpApi credentials, quota, and provider availability. No successful empty result is assumed."
+            : "AI scoring could not complete. Check your OpenAI key, model access, and quota. Unprocessed jobs remain available for the next search.",
       );
     }
   }

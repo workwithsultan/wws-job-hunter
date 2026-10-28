@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
 import { existsSync } from "node:fs";
@@ -7,9 +7,11 @@ import { z } from "zod";
 import {
   preferencesSchema,
   jobUpdateSchema,
-  connectionUpdateSchema,
+  providerKeySchema,
   statusSchema,
 } from "../shared/model.js";
+import { searchBudget } from "../shared/budget.js";
+import { keyId } from "./config.js";
 import { buildSearchQueryPreview } from "../discovery/search-query.js";
 import type { Store } from "./store.js";
 import type { Configuration } from "./config.js";
@@ -132,45 +134,146 @@ export function buildApp(
     runner.reschedule();
     return { ok: true };
   });
-  app.put("/api/connections", async (request, reply) => {
-    if (runner.running)
-      return reply
-        .code(409)
-        .send({ error: "Wait for the current search to finish before changing provider keys." });
-    const change = connectionUpdateSchema.parse(request.body);
-    if ((change.removeOpenai && change.openaiKey) || (change.removeSerpapi && change.serpapiKey))
-      return reply
-        .code(400)
-        .send({ error: "Choose either saving or removing a provider key, not both." });
-    if (
-      !change.removeOpenai &&
-      (change.openaiKey || config.connectionStatus().openai) &&
-      !change.model
-    )
-      return reply.code(400).send({ error: "Choose an OpenAI model before saving an OpenAI key." });
-    const updates: Record<string, string> = { OPENAI_MODEL: change.model };
-    for (const key of [change.openaiKey, change.serpapiKey])
-      if (key && !/^[A-Za-z0-9_\-]+$/.test(key))
-        return reply
-          .code(400)
-          .send({ error: "API keys must not contain spaces, quotes, or line breaks." });
-    if (change.openaiKey) updates.OPENAI_API_KEY = change.openaiKey;
-    if (change.serpapiKey) updates.SERPAPI_API_KEY = change.serpapiKey;
-    if (change.removeOpenai) updates.OPENAI_API_KEY = "";
-    if (change.removeSerpapi) updates.SERPAPI_API_KEY = "";
-    config.update(updates);
+  const connectionChanged = () => {
     if (runner.missing().length)
       store.savePreferences({ ...store.preferences(), scheduleEnabled: false });
     runner.reschedule();
-    return { ok: true };
+  };
+  const withConnections = async <T>(reply: FastifyReply, action: () => Promise<T>) => {
+    if (runner.running || runner.updatingConnections)
+      return reply
+        .code(409)
+        .send({ error: "Wait for the current search or connection update to finish." });
+    runner.updatingConnections = true;
+    try {
+      return await action();
+    } finally {
+      runner.updatingConnections = false;
+    }
+  };
+  app.get("/api/openai/models", async (request, reply) => {
+    if (!config.connectionStatus().openai)
+      return reply.code(409).send({ error: "Connect an OpenAI key first." });
+    try {
+      return {
+        models: await runner.providers.models(
+          undefined,
+          (request.query as { refresh?: string }).refresh === "true",
+        ),
+      };
+    } catch (error) {
+      return reply
+        .code(502)
+        .send({ error: error instanceof Error ? error.message : "Models could not be loaded." });
+    }
   });
+  app.put("/api/openai/key", async (request, reply) =>
+    withConnections(reply, async () => {
+      const { key } = providerKeySchema.parse(request.body);
+      try {
+        const models = await runner.providers.models(key, true);
+        const current = config.connectionStatus().model;
+        config.update({
+          OPENAI_API_KEY: key,
+          OPENAI_MODEL: models.includes(current) ? current : "",
+        });
+        connectionChanged();
+        return { ok: true };
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : "The key could not be connected.",
+        });
+      }
+    }),
+  );
+  app.put("/api/openai/model", async (request, reply) =>
+    withConnections(reply, async () => {
+      const { model } = z
+        .object({ model: z.string().min(1).max(150) })
+        .strict()
+        .parse(request.body);
+      if (!config.connectionStatus().openai)
+        return reply.code(409).send({ error: "Connect an OpenAI key first." });
+      try {
+        const models = await runner.providers.models();
+        if (!models.includes(model))
+          return reply.code(400).send({ error: "Choose a model available to this key." });
+        config.update({ OPENAI_MODEL: model });
+        connectionChanged();
+        return { ok: true };
+      } catch (error) {
+        return reply
+          .code(502)
+          .send({ error: error instanceof Error ? error.message : "Models could not be loaded." });
+      }
+    }),
+  );
+  app.delete("/api/openai/key", async (_request, reply) =>
+    withConnections(reply, async () => {
+      config.update({ OPENAI_API_KEY: "", OPENAI_MODEL: "" });
+      connectionChanged();
+      return { ok: true };
+    }),
+  );
+  app.get("/api/serpapi/quota", async (request) =>
+    runner.providers.quota((request.query as { refresh?: string }).refresh === "true"),
+  );
+  app.post("/api/serpapi/keys", async (request, reply) =>
+    withConnections(reply, async () => {
+      const { key } = providerKeySchema.parse(request.body);
+      const keys = config.serpApiKeys();
+      if (keys.includes(key)) return reply.code(400).send({ error: "This key is already saved." });
+      if (keys.length >= 10)
+        return reply.code(400).send({ error: "You can connect up to 10 SerpApi accounts." });
+      try {
+        const [account, quota] = await Promise.all([
+          runner.providers.account(key, true),
+          runner.providers.quota(),
+        ]);
+        if (quota.accounts.some((existing) => existing.id === account.id))
+          return reply.code(400).send({
+            error: "This account is already connected. Another key would share its quota.",
+          });
+        config.update({ SERPAPI_API_KEYS: [...keys, key].join(",") });
+        connectionChanged();
+        return { ok: true };
+      } catch (error) {
+        return reply.code(400).send({
+          error: error instanceof Error ? error.message : "The key could not be connected.",
+        });
+      }
+    }),
+  );
+  app.delete("/api/serpapi/keys/:id", async (request, reply) =>
+    withConnections(reply, async () => {
+      const { id } = z.object({ id: z.string().regex(/^[a-f0-9]{24}$/) }).parse(request.params);
+      const keys = config.serpApiKeys();
+      const remaining = keys.filter((key) => keyId(key) !== id);
+      if (remaining.length === keys.length)
+        return reply.code(404).send({ error: "This key is no longer saved." });
+      config.update({ SERPAPI_API_KEYS: remaining.join(",") });
+      connectionChanged();
+      return { ok: true };
+    }),
+  );
   app.get("/api/runs", async () => ({ runs: store.runs() }));
-  app.get("/api/query", async () => {
+  app.get("/api/query", async (_request, reply) => {
     const p = store.preferences();
-    return { query: p.roles.length ? buildSearchQueryPreview(p.roles, p.limit, p.sources) : "" };
+    if (!p.roles.length || !config.serpApiKeys().length) return { query: "" };
+    const quota = await runner.providers.quota();
+    if (!quota.complete)
+      return reply
+        .code(502)
+        .send({ error: "Check the SerpApi connection before previewing the query." });
+    return {
+      query: buildSearchQueryPreview(p.roles, searchBudget(quota, p).limitPerSource, p.sources),
+    };
   });
   app.post("/api/runs", async (_request, reply) => {
-    if (runner.running) return reply.code(409).send({ error: "A search is already running." });
+    if (runner.running || runner.updatingConnections)
+      return reply
+        .code(409)
+        .send({ error: "Wait for the current search or connection update to finish." });
     const missing = runner.missing();
     if (missing.length) return reply.code(400).send({ error: missing.join(". ") + "." });
     return reply.code(202).send({ id: runner.start("manual") });

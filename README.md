@@ -1,6 +1,6 @@
 # Job Hunter
 
-A self-hosted workspace for discovering US remote jobs, reviewing AI match scores, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
+An application for discovering US remote jobs, reviewing AI match scores, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
 
 ## Install and run
 
@@ -12,15 +12,15 @@ Requires **Node.js 24 LTS or newer** and npm. Download and extract the source pa
 4. Start it: `npm start`
 5. Open **http://127.0.0.1:8790**.
 
-Open **Settings** to add your profile, an OpenAI API key, a model ID available to your account that supports Responses API structured outputs, and a SerpApi key. Open **Search** to choose target roles and job sites. Your first search starts only after you explicitly confirm it.
+Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles and job sites. Your first search starts only after you explicitly confirm it.
 
-API calls consume your own provider credits. Installing and opening the app makes no provider calls. No sample jobs, profiles, credentials, or application records are included.
+API calls consume your own provider credits. An unconfigured installation makes no provider calls. Connecting keys verifies model access or account quota; these metadata requests do not run job discovery or AI scoring. No sample jobs, profiles, credentials, or application records are included.
 
 ## Workspace
 
 - **Jobs:** filter opportunities, read match reasons, open original postings, and export CSV.
 - **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
-- **Search:** edit roles, exclusion keywords, sources, result limits, schedule, and view actual execution history.
+- **Search:** edit roles, exclusion keywords, sources and schedule, and view actual execution history.
 - **Settings:** edit your profile, match threshold, and provider keys.
 
 Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Railway, Telegram, and a separate database server are not required. Existing historical spreadsheets are not imported or modified.
@@ -35,11 +35,19 @@ JavaScript-only, blocked, inaccessible, or unsupported descriptions are marked *
 
 Scheduled searches are off by default. Enable them only after setup. The server must remain running; missed schedules are not replayed. Stopping the server cancels active provider requests and keeps already-saved jobs. A restart marks a search left by an unexpected shutdown as interrupted. Editing search settings or credentials is blocked during an active run.
 
+## Provider quota
+
+Connect several SerpApi keys when they belong to separate accounts. Keys for the same account are rejected to avoid counting the same balance twice. Account balances and reset dates come from the [SerpApi Account API](https://serpapi.com/account-api), which does not consume search credits. Refresh reloads them; each run verifies them again.
+
+SerpApi has a monthly search allowance. The app calculates a daily planning target from each account's remaining searches and days until renewal, then adjusts search depth automatically. This is an estimate, not a provider daily limit or a hard daily spending cap. The confirmation shows estimated requests; retries can use additional credits. If a renewal date is unavailable, no daily target is invented. Unknown quota or exhausted accounts block search explicitly.
+
+The model dropdown uses the [OpenAI Models API](https://developers.openai.com/api/reference/resources/models/methods/list) and filters for text model families suitable for scoring. Account access and structured-output support can still differ by model; upstream errors are shown explicitly. No model IDs are supplied as a static fallback.
+
 ## Local configuration
 
 All environment settings live in the untracked `.env.local` file. `npm run setup` creates it without overwriting an existing file. API keys saved in Settings are written to this file with owner-only permissions and are never returned by the API. Other preferences and your profile live in the local database.
 
-The generated file uses port 8790, loopback host `127.0.0.1`, and `./data` as its data directory. Model and API keys start empty; the interface works before providers are configured. Existing keys are kept when a key field is left blank. Removing a provider key disables scheduled searches.
+The generated file uses port 8790, loopback host `127.0.0.1`, and `./data` as its data directory. Model and API keys start empty; the interface works before providers are configured. Saved keys are masked. Change or remove them explicitly; empty key submissions are rejected. Removing a provider key disables scheduled searches.
 
 This release serves only on a loopback address. Remote server installations can be reached through an SSH tunnel. Public internet binding, multi-user accounts, reverse-proxy authentication, and hosted service operation are outside this release.
 

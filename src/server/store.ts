@@ -52,9 +52,13 @@ export class Store {
   preferences(): Preferences {
     const row = this.db.prepare("SELECT value FROM preferences WHERE id=1").get() as
       { value: string } | undefined;
-    return row
-      ? preferencesSchema.parse(JSON.parse(row.value))
-      : structuredClone(defaultPreferences);
+    if (!row) return structuredClone(defaultPreferences);
+    const saved: unknown = JSON.parse(row.value);
+    if (typeof saved !== "object" || saved === null || Array.isArray(saved))
+      throw new Error("Saved preferences are invalid.");
+    const value = { ...saved };
+    if ("limit" in value) delete value.limit;
+    return preferencesSchema.parse(value);
   }
   savePreferences(value: Preferences): void {
     this.db

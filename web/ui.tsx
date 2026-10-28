@@ -2,6 +2,7 @@ import {
   cloneElement,
   createContext,
   useContext,
+  useEffect,
   useRef,
   useState,
   type ReactElement,
@@ -190,6 +191,7 @@ interface ChoiceProps extends ControlProps {
   options: { value: string; label: string }[];
   label: string;
   disabled?: boolean;
+  placeholder?: string;
 }
 export function Choice({
   value,
@@ -197,6 +199,7 @@ export function Choice({
   options,
   label,
   disabled = false,
+  placeholder = "Choose",
   ...attributes
 }: ChoiceProps) {
   const [open, setOpen] = useState(false);
@@ -236,7 +239,7 @@ export function Choice({
         aria-label={label}
         aria-haspopup="listbox"
       >
-        <span>{options.find((option) => option.value === value)?.label ?? "Choose"}</span>
+        <span>{options.find((option) => option.value === value)?.label ?? placeholder}</span>
         <ChevronDown />
       </Popover.Trigger>
       <Popover.Portal {...(container ? { container } : {})}>
@@ -272,5 +275,137 @@ export function Choice({
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+export function useDraftWarning(dirty: boolean) {
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+}
+
+interface ChipInputProps extends ControlProps {
+  value: string[];
+  onChange: (value: string[]) => void;
+  onError: (message: string) => void;
+  label: string;
+  onEditing: () => void;
+}
+export function ChipInput({
+  value,
+  onChange,
+  onError,
+  label,
+  onEditing,
+  ...attributes
+}: ChipInputProps) {
+  const [entry, setEntry] = useState("");
+  const confirm = useConfirm();
+  const add = async (text = entry) => {
+    const values = text
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!values.length) return;
+    if (values.some((item) => item.length > 100 || /["\r]/.test(item))) {
+      onError("Use keywords of up to 100 characters, without quotation marks.");
+      return;
+    }
+    if (value.length + values.length > 30) {
+      onError("Use no more than 30 keywords.");
+      return;
+    }
+    const seen = new Set(value.map((item) => item.toLowerCase()));
+    for (const item of values) {
+      if (seen.has(item.toLowerCase())) {
+        onError('Already added: "' + item + '".');
+        return;
+      }
+      seen.add(item.toLowerCase());
+    }
+    if (
+      !(await confirm({
+        title: values.length === 1 ? "Add keyword?" : "Add keywords?",
+        description: values.join(", "),
+        action: values.length === 1 ? "Add keyword" : "Add keywords",
+      }))
+    )
+      return;
+    onChange([...value, ...values]);
+    setEntry("");
+    onError("");
+  };
+  const remove = async (term: string) => {
+    if (
+      !(await confirm({
+        title: "Remove keyword?",
+        description: 'Remove "' + term + '"?',
+        action: "Remove",
+        destructive: true,
+      }))
+    )
+      return;
+    onChange(value.filter((item) => item !== term));
+    if (attributes.id)
+      requestAnimationFrame(() => document.getElementById(attributes.id!)?.focus());
+    onError("");
+  };
+  return (
+    <div className="chip-input">
+      {value.map((term) => (
+        <span className="keyword-chip" key={term}>
+          <span>{term}</span>
+          <button type="button" aria-label={"Remove " + term} onClick={() => void remove(term)}>
+            <X aria-hidden="true" />
+          </button>
+        </span>
+      ))}
+      <input
+        {...attributes}
+        className="chip-entry"
+        placeholder={label === "Job title" ? "Add a title" : "Add a keyword"}
+        type="text"
+        value={entry}
+        aria-label={label}
+        autoComplete="off"
+        onChange={(event) => {
+          setEntry(event.target.value);
+          onEditing();
+          onError("");
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === ",") {
+            event.preventDefault();
+            void add();
+          }
+          if (event.key === "Backspace" && !entry && value.length) {
+            event.preventDefault();
+            void remove(value[value.length - 1]!);
+          }
+        }}
+        onPaste={(event) => {
+          const text = event.clipboardData.getData("text");
+          if (/[,\n]/.test(text)) {
+            event.preventDefault();
+            void add(text);
+          }
+        }}
+      />
+      <button
+        className="chip-add"
+        type="button"
+        disabled={!entry.trim()}
+        aria-label={"Add " + label.toLowerCase()}
+        onClick={() => void add()}
+      >
+        Add
+      </button>
+    </div>
   );
 }

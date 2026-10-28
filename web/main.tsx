@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Circle,
   CircleDashed,
   Clock3,
   ExternalLink,
@@ -27,13 +26,11 @@ import {
   Play,
   Search as SearchIcon,
   Settings2,
-  ShieldCheck,
   Sparkles,
   Trash2,
 } from "lucide-react";
 import {
   applicationStatuses,
-  connectionUpdateSchema,
   preferencesSchema,
   sources,
   statusLabels,
@@ -44,8 +41,20 @@ import {
   type SearchRun,
   type Workspace,
 } from "../src/shared/model";
+import { searchBudget } from "../src/shared/budget";
+import { ProviderSettings, useQuota } from "./providers";
 import { api, ApiError, dateText } from "./api";
-import { Alert, Busy, Choice, ConfirmationProvider, Field, Modal, useConfirm } from "./ui";
+import {
+  Alert,
+  Busy,
+  Choice,
+  ChipInput,
+  ConfirmationProvider,
+  Field,
+  Modal,
+  useConfirm,
+  useDraftWarning,
+} from "./ui";
 import "./style.css";
 
 const storedTheme = localStorage.getItem("jobHunterAppearance") ?? "system";
@@ -58,17 +67,6 @@ const nav = [
 ];
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "The action could not be completed. Try again.";
-function useDraftWarning(dirty: boolean) {
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
-}
 function missingSetup(workspace: Workspace) {
   return {
     profile: workspace.preferences.profile.trim().length < 10,
@@ -132,16 +130,26 @@ function App() {
       navigate("/search");
       return;
     }
-    if (
-      !(await confirm({
-        title: "Start a job search?",
-        description: `Search ${workspace.preferences.sources.length} job sites for US remote roles, then score new jobs against your profile. Your profile is sent to OpenAI. This uses your SerpApi and OpenAI credits.`,
-        action: "Start search",
-      }))
-    )
-      return;
     setStarting(true);
     try {
+      const quota = await api<import("../src/shared/model").SerpQuota>(
+        "/api/serpapi/quota?refresh=true",
+      );
+      const budget = searchBudget(quota, workspace.preferences);
+      if (!quota.complete)
+        throw new Error("Check your SerpApi connection in Settings before searching.");
+      if (!budget.remaining)
+        throw new Error("No SerpApi searches remain. Check your accounts in Settings.");
+      if (!quota.accounts.some((account) => account.remaining > 0 && account.hourlyRemaining !== 0))
+        throw new Error("The SerpApi hourly limit has been reached. Try again after it resets.");
+      if (
+        !(await confirm({
+          title: "Start a job search?",
+          description: `Estimated usage: ${budget.searchesPerRun} SerpApi searches before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} New jobs will be scored against your profile using OpenAI.`,
+          action: "Start search",
+        }))
+      )
+        return;
       await api("/api/runs", "POST", {});
       await reload();
       navigate("/search");
@@ -152,7 +160,7 @@ function App() {
     }
   };
   const navigation = (
-    <nav aria-label="Workspace">
+    <nav aria-label="Main navigation">
       {nav.map(({ path, label, icon: Icon }) => (
         <NavLink key={path} to={path} onClick={() => setMobileMenu(false)}>
           <Icon aria-hidden="true" />
@@ -187,10 +195,6 @@ function App() {
                 ]}
               />
             </div>
-            <span className="local-label">
-              <ShieldCheck aria-hidden="true" />
-              Self-hosted workspace
-            </span>
           </div>
         </aside>
         <div className="main-column">
@@ -203,31 +207,21 @@ function App() {
               >
                 <Menu />
               </button>
-              <span className="breadcrumb">
-                Workspace <ChevronRight aria-hidden="true" />{" "}
-                <span>{current?.label ?? "Page"}</span>
-              </span>
+              <Link to="/jobs" className="mobile-brand">
+                Job Hunter
+              </Link>
             </div>
-            <span className={workspace?.running ? "run-indicator active" : "run-indicator"}>
-              <span className="status-dot" />
-              {workspace?.running ? "Search running" : "Local workspace"}
-            </span>
+            {workspace?.running && (
+              <span className="run-indicator active" role="status">
+                <Clock3 />
+                Searching…
+              </span>
+            )}
           </header>
           <main id="main" tabIndex={-1}>
             <div className="page-heading">
               <div>
                 <h1>{current?.label ?? "Page not found"}</h1>
-                <p>
-                  {location.pathname === "/jobs"
-                    ? "Review your matches and choose what comes next."
-                    : location.pathname === "/applications"
-                      ? "Track updates and notes for the jobs you apply to."
-                      : location.pathname === "/search"
-                        ? "Choose your target roles, job sites, and schedule."
-                        : location.pathname === "/settings"
-                          ? "Your profile, preferences, and connections."
-                          : "This page is not in your workspace."}
-                </p>
               </div>
               {workspace && (location.pathname === "/jobs" || location.pathname === "/search") && (
                 <button
@@ -273,7 +267,11 @@ function App() {
                   />
                 </section>
                 <section hidden={location.pathname !== "/settings"} className="page-content">
-                  <SettingsPage workspace={workspace} reload={reload} />
+                  <SettingsPage
+                    workspace={workspace}
+                    reload={reload}
+                    active={location.pathname === "/settings"}
+                  />
                 </section>
               </>
             )}
@@ -472,19 +470,6 @@ function JobsPage({
               {applications ? "Browse jobs" : emptyAction}
               <ArrowRight />
             </Link>
-            {!applications && setupIncomplete && !workspace.running && !searchFailed && (
-              <div className="setup-path">
-                <span>
-                  <span>1</span>Set your preferences
-                </span>
-                <span>
-                  <span>2</span>Discover matches
-                </span>
-                <span>
-                  <span>3</span>Track applications
-                </span>
-              </div>
-            )}
           </div>
         ) : data.jobs.length === 0 ? (
           <div className="empty-state compact">
@@ -765,25 +750,26 @@ function SearchPage({
   active: boolean;
 }) {
   const [draft, setDraft] = useState(workspace.preferences);
-  const [rolesText, setRolesText] = useState(workspace.preferences.roles.join("\n"));
-  const [exclusionsText, setExclusionsText] = useState(workspace.preferences.exclusions.join("\n"));
   const [dirty, setDirty] = useState(false);
+  const [chipVersion, setChipVersion] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [runs, setRuns] = useState<SearchRun[] | null>(null);
   const [historyError, setHistoryError] = useState("");
-  const [query, setQuery] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [historyRetry, setHistoryRetry] = useState(0);
+  const [query, setQuery] = useState("");
+  const { quota } = useQuota(workspace.connections.serpapiKeys, active, workspace.running);
+  const budget = searchBudget(quota, draft);
   useDraftWarning(dirty);
   useEffect(() => {
-    if (!dirty) {
-      setDraft(workspace.preferences);
-      setRolesText(workspace.preferences.roles.join("\n"));
-      setExclusionsText(workspace.preferences.exclusions.join("\n"));
-    }
+    if (!dirty) setDraft(workspace.preferences);
   }, [workspace.preferences, dirty]);
+  useEffect(() => {
+    if (workspace.running) setHistoryOpen(true);
+  }, [workspace.running]);
   useEffect(() => {
     if (!active) return;
     let disposed = false;
@@ -802,7 +788,7 @@ function SearchPage({
     };
   }, [active, version, historyRetry]);
   useEffect(() => {
-    if (!workspace.preferences.roles.length) {
+    if (!workspace.preferences.roles.length || !workspace.connections.serpapi) {
       setQuery("");
       return;
     }
@@ -817,7 +803,7 @@ function SearchPage({
     return () => {
       disposed = true;
     };
-  }, [workspace.preferences]);
+  }, [workspace.preferences, workspace.connections.serpapi]);
   const change = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setDraft((v) => ({ ...v, [key]: value }));
     setDirty(true);
@@ -828,21 +814,19 @@ function SearchPage({
     event.preventDefault();
     if (busy) return;
     const candidate = {
-      ...workspace.preferences,
-      roles: draft.roles,
-      exclusions: draft.exclusions,
-      sources: draft.sources,
-      limit: draft.limit,
-      scheduleEnabled: draft.scheduleEnabled,
-      scheduleTime: draft.scheduleTime,
-      timezone: draft.timezone,
-      scheduleDays: draft.scheduleDays,
+      ...draft,
+      profile: workspace.preferences.profile,
+      threshold: workspace.preferences.threshold,
     };
     const result = preferencesSchema.safeParse(candidate);
     const fields: Record<string, string> = {};
     if (!result.success)
       for (const issue of result.error.issues) fields[String(issue.path[0])] = issue.message;
-    if (!candidate.roles.length) fields.roles = "Add at least one target role.";
+    if (!candidate.roles.length) fields.roles = "Add at least one job title.";
+    if ((document.getElementById("search-roles") as HTMLInputElement).value.trim())
+      fields.roles = "Add or clear the typed title before saving.";
+    if ((document.getElementById("search-exclusions") as HTMLInputElement).value.trim())
+      fields.exclusions = "Add or clear the typed keyword before saving.";
     if (Object.keys(fields).length) {
       setErrors(fields);
       document.getElementById("search-" + Object.keys(fields)[0])?.focus();
@@ -852,9 +836,9 @@ function SearchPage({
     setFailure("");
     try {
       await api("/api/preferences", "PUT", candidate);
+      await reload();
       setDirty(false);
       setSaved(true);
-      await reload();
     } catch (error) {
       if (error instanceof ApiError && Object.keys(error.fields).length) setErrors(error.fields);
       else setFailure(errorMessage(error));
@@ -862,12 +846,6 @@ function SearchPage({
       setBusy(false);
     }
   };
-  const setup = missingSetup(workspace);
-  const split = (value: string) =>
-    value
-      .split("\n")
-      .map((term) => term.trim())
-      .filter(Boolean);
   const hours = Array.from({ length: 24 }, (_, value) => ({
     value: String(value).padStart(2, "0"),
     label: String(value).padStart(2, "0"),
@@ -881,128 +859,94 @@ function SearchPage({
     .map((value) => ({ value, label: value.replaceAll("_", " ") }));
   return (
     <>
-      <div className="setup-checklist" aria-label="Search setup">
-        {[
-          { label: "Your profile", complete: !setup.profile, path: "/settings" },
-          { label: "Target roles", complete: !setup.roles, path: "/search" },
-          { label: "Provider keys", complete: !setup.providers, path: "/settings" },
-        ].map((item) => (
-          <Link
-            key={item.label}
-            to={item.path}
-            className={item.complete ? "setup-check complete" : "setup-check"}
-          >
-            {item.complete ? (
-              <CheckCircle2 aria-label="Complete" />
-            ) : (
-              <Circle aria-label="Incomplete" />
-            )}
-            <span>{item.label}</span>
-            {!item.complete && <ArrowUpRight aria-hidden="true" />}
-          </Link>
-        ))}
-      </div>
       {failure && <Alert>{failure}</Alert>}
-      <form onSubmit={(event) => void save(event)} noValidate className="preferences-form">
+      <form onSubmit={(event) => void save(event)} noValidate className="search-form">
         <fieldset disabled={workspace.running || busy}>
-          <div className="form-section">
-            <div className="section-intro">
-              <h2>Find the right roles</h2>
-              <p>Search remote opportunities in the United States.</p>
+          <section className="search-section">
+            <div className="section-heading">
+              <h2>Job titles</h2>
+              <span className="scope-label">Remote · United States</span>
             </div>
-            <div className="form-content">
-              <div className="form-grid">
-                <Field
-                  id="search-roles"
-                  label="Target roles (required; one per line)"
-                  error={errors.roles}
-                >
-                  <textarea
-                    value={rolesText}
-                    maxLength={3000}
-                    onChange={(event) => {
-                      setRolesText(event.target.value);
-                      change("roles", split(event.target.value));
-                    }}
-                  />
-                </Field>
-                <Field
-                  id="search-exclusions"
-                  label="Excluded title keywords (optional; one per line)"
-                  error={errors.exclusions}
-                >
-                  <textarea
-                    value={exclusionsText}
-                    maxLength={3000}
-                    onChange={(event) => {
-                      setExclusionsText(event.target.value);
-                      change("exclusions", split(event.target.value));
-                    }}
-                  />
-                </Field>
-              </div>
-              <div className="field">
-                <label id="sources-label">Job sites (required)</label>
-                <div className="source-options" role="group" aria-labelledby="sources-label">
-                  {Object.entries(sources).map(([value, label]) => (
-                    <label className="source-choice" key={value}>
-                      <input
-                        type="checkbox"
-                        checked={draft.sources.includes(value as keyof typeof sources)}
-                        disabled={
-                          draft.sources.length === 1 &&
-                          draft.sources.includes(value as keyof typeof sources)
-                        }
-                        onChange={(event) =>
-                          change(
-                            "sources",
-                            event.target.checked
-                              ? [...draft.sources, value as keyof typeof sources]
-                              : draft.sources.filter((source) => source !== value),
-                          )
-                        }
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div className="short-field">
-                <Field id="search-limit" label="Results per site (required)" error={errors.limit}>
-                  <Choice
-                    value={String(draft.limit)}
-                    onChange={(value) => change("limit", Number(value))}
-                    label="Results per site"
-                    options={[10, 20, 30, 40, 50].map((value) => ({
-                      value: String(value),
-                      label: String(value),
-                    }))}
-                  />
-                </Field>
-              </div>
+            <div className="keyword-grid">
+              <Field id="search-roles" label="Include (required)" error={errors.roles}>
+                <ChipInput
+                  key={"roles-" + chipVersion}
+                  onEditing={() => {
+                    setDirty(true);
+                    setSaved(false);
+                  }}
+                  value={draft.roles}
+                  onChange={(value) => change("roles", value)}
+                  onError={(message) => setErrors((v) => ({ ...v, roles: message }))}
+                  label="Job title"
+                />
+              </Field>
+              <Field id="search-exclusions" label="Exclude (optional)" error={errors.exclusions}>
+                <ChipInput
+                  key={"exclusions-" + chipVersion}
+                  onEditing={() => {
+                    setDirty(true);
+                    setSaved(false);
+                  }}
+                  value={draft.exclusions}
+                  onChange={(value) => change("exclusions", value)}
+                  onError={(message) => setErrors((v) => ({ ...v, exclusions: message }))}
+                  label="Excluded keyword"
+                />
+              </Field>
             </div>
-          </div>
-          <div className="form-section">
-            <div className="section-intro">
-              <h2>Search on your schedule</h2>
-              <p>Scheduled searches run while this app is running.</p>
-              {workspace.nextRun && (
-                <span className="next-run">
-                  <Clock3 />
-                  Next: {dateText(workspace.nextRun)}
-                </span>
-              )}
+          </section>
+          <section className="search-section">
+            <h2 id="source-heading">Job sites (required)</h2>
+            <div className="source-chips" role="group" aria-labelledby="source-heading">
+              {Object.entries(sources).map(([value, label]) => {
+                const selected = draft.sources.includes(value as keyof typeof sources);
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    className="source-chip"
+                    aria-pressed={selected}
+                    disabled={selected && draft.sources.length === 1}
+                    onClick={() =>
+                      change(
+                        "sources",
+                        selected
+                          ? draft.sources.filter((source) => source !== value)
+                          : [...draft.sources, value as keyof typeof sources],
+                      )
+                    }
+                  >
+                    <Check
+                      aria-hidden="true"
+                      style={{ visibility: selected ? "visible" : "hidden" }}
+                    />
+                    {label}
+                  </button>
+                );
+              })}
             </div>
-            <div className="form-content">
+            {budget.remaining !== null && (
+              <div className="search-usage" role="status">
+                <span>{budget.remaining.toLocaleString()} searches remaining</span>
+                {budget.searchesPerRun !== null && <span>~{budget.searchesPerRun} / run</span>}
+              </div>
+            )}
+          </section>
+          <section className="search-section">
+            <div className="section-heading">
+              <h2>Schedule</h2>
               <label className="check-line">
                 <input
                   type="checkbox"
                   checked={draft.scheduleEnabled}
                   onChange={(event) => change("scheduleEnabled", event.target.checked)}
                 />
-                <span>Enable scheduled searches (optional)</span>
+                <span>Run automatically (optional)</span>
               </label>
-              <fieldset disabled={!draft.scheduleEnabled} className="schedule-fields">
+            </div>
+            {draft.scheduleEnabled && (
+              <div className="schedule-fields">
                 <div className="form-grid">
                   <div className="time-pair">
                     <Field id="search-hour" label="Hour (required)">
@@ -1060,12 +1004,16 @@ function SearchPage({
                     ))}
                   </div>
                 </div>
-              </fieldset>
-            </div>
-          </div>
+                <p className="schedule-note">
+                  Runs while the app is open.
+                  {workspace.nextRun ? ` Next: ${dateText(workspace.nextRun)}.` : ""}
+                </p>
+              </div>
+            )}
+          </section>
           <div className="form-actions">
             <button className="primary" disabled={busy || !dirty}>
-              {busy ? "Saving…" : "Save search preferences"}
+              {busy ? "Saving…" : "Save changes"}
             </button>
             {dirty && (
               <button
@@ -1073,6 +1021,7 @@ function SearchPage({
                 disabled={busy}
                 onClick={() => {
                   setDraft(workspace.preferences);
+                  setChipVersion((value) => value + 1);
                   setDirty(false);
                   setErrors({});
                 }}
@@ -1083,37 +1032,24 @@ function SearchPage({
             {saved && (
               <span className="saved" role="status">
                 <Check />
-                Preferences saved
+                Saved
               </span>
             )}
           </div>
         </fieldset>
       </form>
-      {query && (
-        <details className="query-details">
-          <summary>Saved search query</summary>
-          <pre>{query}</pre>
-        </details>
-      )}
-      <div className="collection">
-        <div className="collection-heading">
-          <h2>Search history</h2>
-          <button className="ghost" onClick={() => setHistoryRetry((v) => v + 1)}>
-            Refresh
-          </button>
-        </div>
+      <details
+        className="history-details"
+        open={historyOpen}
+        onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
+      >
+        <summary>Search history</summary>
         {historyError ? (
-          <div className="collection-body">
-            <Alert onRetry={() => setHistoryRetry((v) => v + 1)}>{historyError}</Alert>
-          </div>
+          <Alert onRetry={() => setHistoryRetry((v) => v + 1)}>{historyError}</Alert>
         ) : !runs ? (
           <Busy label="Loading search history…" />
         ) : runs.length === 0 ? (
-          <div className="empty-state compact">
-            <Clock3 />
-            <h3>No searches yet</h3>
-            <p>Complete setup, then run your first search. Each run will appear here.</p>
-          </div>
+          <p className="empty-history">No searches yet.</p>
         ) : (
           <div className="run-list">
             {runs.map((run) => (
@@ -1144,45 +1080,45 @@ function SearchPage({
             ))}
           </div>
         )}
-      </div>
+      </details>
+      {query && (
+        <details className="query-details">
+          <summary>Search query</summary>
+          <pre>{query}</pre>
+        </details>
+      )}
     </>
   );
 }
 function SettingsPage({
   workspace,
   reload,
+  active,
 }: {
   workspace: Workspace;
   reload: () => Promise<void>;
+  active: boolean;
 }) {
   const [profile, setProfile] = useState(workspace.preferences.profile);
   const [threshold, setThreshold] = useState(String(workspace.preferences.threshold));
-  const [profileDirty, setProfileDirty] = useState(false);
-  const [model, setModel] = useState(workspace.connections.model);
-  const [openaiKey, setOpenaiKey] = useState("");
-  const [serpapiKey, setSerpapiKey] = useState("");
-  const [keysDirty, setKeysDirty] = useState(false);
-  const [busy, setBusy] = useState("");
+  const [dirty, setDirty] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
-  const [saved, setSaved] = useState("");
-  const confirm = useConfirm();
-  useDraftWarning(profileDirty || keysDirty);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useDraftWarning(dirty);
   useEffect(() => {
-    if (!profileDirty) {
+    if (!dirty) {
       setProfile(workspace.preferences.profile);
       setThreshold(String(workspace.preferences.threshold));
     }
-  }, [workspace.preferences, profileDirty]);
-  useEffect(() => {
-    if (!keysDirty) setModel(workspace.connections.model);
-  }, [workspace.connections.model, keysDirty]);
-  const saveProfile = async (event: FormEvent) => {
+  }, [workspace.preferences, dirty]);
+  const save = async (event: FormEvent) => {
     event.preventDefault();
     if (busy) return;
     const fields: Record<string, string> = {};
     if (profile.trim().length < 10)
-      fields.profile = "Describe your experience and job requirements in at least 10 characters.";
+      fields.profile = "Describe your experience and requirements in at least 10 characters.";
     if (
       !threshold ||
       !Number.isInteger(Number(threshold)) ||
@@ -1195,7 +1131,7 @@ function SettingsPage({
       document.getElementById("settings-" + Object.keys(fields)[0])?.focus();
       return;
     }
-    setBusy("profile");
+    setBusy(true);
     setFailure("");
     try {
       await api("/api/preferences", "PUT", {
@@ -1203,277 +1139,81 @@ function SettingsPage({
         profile,
         threshold: Number(threshold),
       });
-      setProfileDirty(false);
+      await reload();
+      setDirty(false);
       setErrors({});
-      setSaved("profile");
-      await reload();
+      setSaved(true);
     } catch (error) {
       setFailure(errorMessage(error));
     } finally {
-      setBusy("");
-    }
-  };
-  const saveKeys = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy) return;
-    const change = { model, openaiKey, serpapiKey };
-    const checked = connectionUpdateSchema.safeParse(change);
-    const fields: Record<string, string> = {};
-    if (!checked.success)
-      for (const issue of checked.error.issues) fields[String(issue.path[0])] = issue.message;
-    if (openaiKey && !/^[A-Za-z0-9_\-]+$/.test(openaiKey.trim()))
-      fields.openaiKey = "Use an API key without spaces or line breaks.";
-    if (serpapiKey && !/^[A-Za-z0-9_\-]+$/.test(serpapiKey.trim()))
-      fields.serpapiKey = "Use an API key without spaces or line breaks.";
-    if ((workspace.connections.openai || openaiKey.trim()) && !model.trim())
-      fields.model = "Enter a model ID available in your OpenAI account.";
-    if (Object.keys(fields).length) {
-      setErrors(fields);
-      document
-        .getElementById(
-          fields.openaiKey ? "openai-key" : fields.serpapiKey ? "serpapi-key" : "openai-model",
-        )
-        ?.focus();
-      return;
-    }
-    if (!checked.success) return;
-    setErrors({});
-    setBusy("keys");
-    setFailure("");
-    try {
-      await api("/api/connections", "PUT", checked.data);
-      setOpenaiKey("");
-      setSerpapiKey("");
-      setKeysDirty(false);
-      setSaved("keys");
-      await reload();
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy("");
-    }
-  };
-  const removeKey = async (provider: "OpenAI" | "SerpApi") => {
-    if (
-      busy ||
-      !(await confirm({
-        title: `Remove ${provider} key?`,
-        description: `Remove the saved ${provider} key from this installation? Scheduled searches will be disabled until setup is complete again.`,
-        action: "Remove key",
-        destructive: true,
-      }))
-    )
-      return;
-    setBusy("keys");
-    try {
-      await api("/api/connections", "PUT", {
-        model: workspace.connections.model,
-        ...(provider === "OpenAI" ? { removeOpenai: true } : { removeSerpapi: true }),
-      });
-      setSaved("");
-      await reload();
-    } catch (error) {
-      setFailure(errorMessage(error));
-    } finally {
-      setBusy("");
+      setBusy(false);
     }
   };
   return (
     <>
+      <ProviderSettings workspace={workspace} reload={reload} active={active} />
       {failure && <Alert>{failure}</Alert>}
-      <form className="preferences-form" onSubmit={(event) => void saveProfile(event)} noValidate>
-        <fieldset disabled={Boolean(busy) || workspace.running}>
-          <div className="form-section">
-            <div className="section-intro">
-              <h2>Your profile</h2>
-              <p>Describe your experience, location, and the roles you want.</p>
-            </div>
-            <div className="form-content">
-              <Field
-                id="settings-profile"
-                label="Experience and job requirements (required)"
-                error={errors.profile}
-              >
-                <textarea
-                  className="profile-input"
-                  value={profile}
-                  maxLength={12000}
-                  onChange={(event) => {
-                    setProfile(event.target.value);
-                    setProfileDirty(true);
-                    setSaved("");
-                    setErrors((v) => ({ ...v, profile: "" }));
-                  }}
-                />
-              </Field>
-              <div className="short-field">
-                <Field
-                  id="settings-threshold"
-                  label="Minimum match score (required)"
-                  error={errors.threshold}
-                >
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value={threshold}
-                    onChange={(event) => {
-                      setThreshold(event.target.value);
-                      setProfileDirty(true);
-                      setSaved("");
-                      setErrors((v) => ({ ...v, threshold: "" }));
-                    }}
-                  />
-                </Field>
-              </div>
-            </div>
+      <form className="profile-form" onSubmit={(event) => void save(event)} noValidate>
+        <fieldset disabled={busy || workspace.running}>
+          <h2>Profile</h2>
+          <Field
+            id="settings-profile"
+            label="Experience and job requirements (required)"
+            error={errors.profile}
+          >
+            <textarea
+              className="profile-input"
+              value={profile}
+              maxLength={12000}
+              onChange={(event) => {
+                setProfile(event.target.value);
+                setDirty(true);
+                setSaved(false);
+                setErrors((v) => ({ ...v, profile: "" }));
+              }}
+            />
+          </Field>
+          <div className="short-field">
+            <Field
+              id="settings-threshold"
+              label="Minimum score (required)"
+              error={errors.threshold}
+            >
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="100"
+                step="1"
+                value={threshold}
+                onChange={(event) => {
+                  setThreshold(event.target.value);
+                  setDirty(true);
+                  setSaved(false);
+                  setErrors((v) => ({ ...v, threshold: "" }));
+                }}
+              />
+            </Field>
           </div>
           <div className="form-actions">
-            <button className="primary" disabled={!profileDirty || Boolean(busy)}>
-              {busy === "profile" ? "Saving…" : "Save profile"}
+            <button className="primary" disabled={!dirty || busy}>
+              {busy ? "Saving…" : "Save profile"}
             </button>
-            {profileDirty && (
+            {dirty && (
               <button
                 type="button"
                 onClick={() => {
-                  setProfileDirty(false);
+                  setDirty(false);
                   setErrors({});
                 }}
               >
                 Cancel
               </button>
             )}
-            {saved === "profile" && (
+            {saved && (
               <span className="saved" role="status">
                 <Check />
-                Profile saved
-              </span>
-            )}
-          </div>
-        </fieldset>
-      </form>
-      <form className="preferences-form" onSubmit={(event) => void saveKeys(event)} noValidate>
-        <fieldset disabled={Boolean(busy) || workspace.running}>
-          <div className="form-section">
-            <div className="section-intro">
-              <h2>Connections</h2>
-              <p>
-                Use your own provider accounts. Keys stay on the server and are never sent back to
-                this browser.
-              </p>
-            </div>
-            <div className="form-content">
-              <div className="provider-heading">
-                <span className="provider-name">
-                  <Sparkles />
-                  OpenAI
-                </span>
-                <span className={workspace.connections.openai ? "badge connected" : "badge"}>
-                  {workspace.connections.openai ? "Key saved" : "Not configured"}
-                </span>
-              </div>
-              <Field
-                id="openai-key"
-                label="OpenAI API key (optional; blank keeps the saved key)"
-                error={errors.openaiKey}
-              >
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={openaiKey}
-                  maxLength={500}
-                  onChange={(event) => {
-                    setOpenaiKey(event.target.value);
-                    setKeysDirty(true);
-                    setSaved("");
-                  }}
-                />
-              </Field>
-              <Field
-                id="openai-model"
-                label="OpenAI model ID (required for scoring)"
-                error={errors.model}
-              >
-                <input
-                  type="text"
-                  autoComplete="off"
-                  value={model}
-                  maxLength={150}
-                  onChange={(event) => {
-                    setModel(event.target.value);
-                    setKeysDirty(true);
-                    setSaved("");
-                  }}
-                />
-              </Field>
-              {workspace.connections.openai && (
-                <button
-                  className="ghost danger-text align-start"
-                  type="button"
-                  onClick={() => void removeKey("OpenAI")}
-                >
-                  Remove OpenAI key
-                </button>
-              )}
-              <div className="provider-heading provider-separator">
-                <span className="provider-name">
-                  <SearchIcon />
-                  SerpApi
-                </span>
-                <span className={workspace.connections.serpapi ? "badge connected" : "badge"}>
-                  {workspace.connections.serpapi ? "Key saved" : "Not configured"}
-                </span>
-              </div>
-              <Field
-                id="serpapi-key"
-                label="SerpApi key (optional; blank keeps the saved key)"
-                error={errors.serpapiKey}
-              >
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  value={serpapiKey}
-                  maxLength={500}
-                  onChange={(event) => {
-                    setSerpapiKey(event.target.value);
-                    setKeysDirty(true);
-                    setSaved("");
-                  }}
-                />
-              </Field>
-              {workspace.connections.serpapi && (
-                <button
-                  className="ghost danger-text align-start"
-                  type="button"
-                  onClick={() => void removeKey("SerpApi")}
-                >
-                  Remove SerpApi key
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="form-actions">
-            <button className="primary" disabled={!keysDirty || Boolean(busy)}>
-              {busy === "keys" ? "Saving…" : "Save connections"}
-            </button>
-            {keysDirty && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenaiKey("");
-                  setSerpapiKey("");
-                  setKeysDirty(false);
-                }}
-              >
-                Cancel
-              </button>
-            )}
-            {saved === "keys" && (
-              <span className="saved" role="status">
-                <Check />
-                Connections saved
+                Saved
               </span>
             )}
           </div>

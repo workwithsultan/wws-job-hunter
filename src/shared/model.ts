@@ -68,7 +68,6 @@ export const preferencesSchema = z
       .min(1)
       .max(5),
     threshold: z.number().int().min(0).max(100),
-    limit: z.number().int().min(10).max(50),
     scheduleEnabled: z.boolean(),
     scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     timezone: z.string().refine((value) => {
@@ -89,7 +88,6 @@ export const defaultPreferences: Preferences = {
   exclusions: [],
   sources: Object.keys(sources) as Source[],
   threshold: 75,
-  limit: 10,
   scheduleEnabled: false,
   scheduleTime: "09:00",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -121,10 +119,30 @@ export interface SearchRun {
   message: string;
   trigger: "manual" | "schedule";
 }
+export interface SavedKey {
+  id: string;
+  lastFour: string;
+}
 export interface Connections {
   openai: boolean;
+  openaiLastFour: string;
   serpapi: boolean;
+  serpapiKeys: SavedKey[];
   model: string;
+}
+export interface SerpAccount {
+  id: string;
+  plan: string;
+  remaining: number;
+  monthlyLimit: number;
+  renewalDate: string | null;
+  hourlyRemaining: number | null;
+}
+export interface SerpQuota {
+  keys: (SavedKey & { accountId: string | null; error: string | null })[];
+  accounts: SerpAccount[];
+  complete: boolean;
+  checkedAt: string;
 }
 export interface Workspace {
   lastRun: SearchRun | null;
@@ -150,12 +168,13 @@ export interface JobList {
 export const jobUpdateSchema = z
   .object({ status: statusSchema, notes: z.string().max(12000) })
   .strict();
-export const connectionUpdateSchema = z
+export const providerKeySchema = z
   .object({
-    openaiKey: z.string().trim().max(500).optional(),
-    serpapiKey: z.string().trim().max(500).optional(),
-    model: z.string().trim().max(150),
-    removeOpenai: z.boolean().optional(),
-    removeSerpapi: z.boolean().optional(),
+    key: z
+      .string()
+      .trim()
+      .min(1, "Enter an API key.")
+      .max(500)
+      .regex(/^[A-Za-z0-9_-]+$/, "Use a key without spaces or line breaks."),
   })
   .strict();

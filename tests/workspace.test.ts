@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Store } from "../src/server/store.js";
 import { Configuration } from "../src/server/config.js";
+import { searchBudget, remainingDays } from "../src/shared/budget.js";
+import { isScoringModel } from "../src/server/providers.js";
 import { Runner } from "../src/server/runner.js";
 import { buildApp } from "../src/server/app.js";
 import { defaultPreferences, preferencesSchema } from "../src/shared/model.js";
@@ -219,4 +221,74 @@ test("shutdown cancellation stops discovery and extraction before any external r
   await assert.rejects(extractDescription("https://jobs.lever.co/", signal), {
     name: "AbortError",
   });
+});
+
+test("provider metadata stays unavailable rather than invented before keys are connected", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, resolve("."), 8790);
+  const read = { host: "127.0.0.1:8790" };
+  const write = { ...read, origin: "http://127.0.0.1:8790", "content-type": "application/json" };
+  try {
+    assert.deepEqual(item.config.connectionStatus().serpapiKeys, []);
+    assert.equal("SERPAPI_API_KEY" in item.config.values(), false);
+    assert.equal(item.config.values().SERPAPI_API_KEYS, "");
+    assert.equal((await app.inject({ url: "/api/openai/models", headers: read })).statusCode, 409);
+    assert.equal(
+      (
+        await app.inject({
+          method: "PUT",
+          url: "/api/openai/key",
+          headers: write,
+          payload: { key: "" },
+        })
+      ).statusCode,
+      400,
+    );
+    assert.equal(item.runner.updatingConnections, false);
+    assert.equal(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/serpapi/keys",
+          headers: write,
+          payload: { key: "" },
+        })
+      ).statusCode,
+      400,
+    );
+    assert.equal(item.runner.updatingConnections, false);
+    assert.equal(
+      (
+        await app.inject({
+          method: "PUT",
+          url: "/api/openai/model",
+          headers: write,
+          payload: { model: "gpt-4o" },
+        })
+      ).statusCode,
+      409,
+    );
+    assert.equal(item.runner.updatingConnections, false);
+    const quota = (await app.inject({ url: "/api/serpapi/quota", headers: read })).json();
+    assert.deepEqual(quota.accounts, []);
+    assert.deepEqual(quota.keys, []);
+    assert.equal(quota.complete, false);
+    assert.deepEqual(item.store.runs(), []);
+    assert.equal(item.store.totals().jobs, 0);
+  } finally {
+    await app.close();
+    await item.runner.stop();
+    item.cleanup();
+  }
+});
+
+test("unknown quota is not reported as zero and model choices exclude unrelated products", () => {
+  const budget = searchBudget(null, defaultPreferences);
+  assert.equal(budget.remaining, null);
+  assert.equal(budget.dailyTarget, null);
+  assert.equal(budget.searchesPerRun, null);
+  assert.equal(remainingDays("2026-11-27", "Asia/Jakarta", new Date("2026-10-28T05:00:00Z")), 30);
+  assert.equal(isScoringModel("gpt-4o"), true);
+  assert.equal(isScoringModel("text-embedding-3-small"), false);
+  assert.equal(isScoringModel("gpt-4o-realtime-preview"), false);
 });
