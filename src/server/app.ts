@@ -266,7 +266,7 @@ export function buildApp(
         .code(502)
         .send({ error: "Check the SerpApi connection before previewing the query." });
     return {
-      query: buildSearchQueryPreview(p.roles, searchBudget(quota, p).limitPerSource, p.sources),
+      query: buildSearchQueryPreview(p.roles, searchBudget(quota, p).limitPerSource, p.sources, p),
     };
   });
   app.post("/api/runs", async (_request, reply) => {

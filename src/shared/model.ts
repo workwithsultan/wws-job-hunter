@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { countrySchema, workTypeSchema, defaultSearchScope } from "./search-scope.js";
 export const statusLabels = {
   new: "New",
   ready: "Ready to apply",
@@ -52,6 +53,8 @@ const terms = z
   .max(30);
 export const preferencesSchema = z
   .object({
+    country: countrySchema,
+    workType: workTypeSchema,
     profile: z.string().max(12000),
     roles: terms,
     exclusions: terms,
@@ -83,6 +86,7 @@ export const preferencesSchema = z
   .strict();
 export type Preferences = z.infer<typeof preferencesSchema>;
 export const defaultPreferences: Preferences = {
+  ...defaultSearchScope,
   profile: "",
   roles: [],
   exclusions: [],

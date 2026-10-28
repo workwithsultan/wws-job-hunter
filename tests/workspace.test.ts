@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import Database from "better-sqlite3";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,7 +13,14 @@ import { buildApp } from "../src/server/app.js";
 import { defaultPreferences, preferencesSchema } from "../src/shared/model.js";
 import { discoverJobs } from "../src/discovery/serpapi.js";
 import { isJobUrl, extractDescription } from "../src/server/extract.js";
-import { buildFirstPageSearchQueries } from "../src/discovery/search-query.js";
+import { searchLocation } from "../src/shared/search-scope.js";
+import { searchChanged, searchValid, profileValid } from "../web/form-state.js";
+import { countries } from "../src/shared/countries.js";
+import {
+  buildSearchQueryBody,
+  buildSearchQueryPreview,
+  buildFirstPageSearchQueries,
+} from "../src/discovery/search-query.js";
 
 function installation() {
   const directory = mkdtempSync(join(tmpdir(), "job-hunter-check-"));
@@ -291,4 +299,99 @@ test("unknown quota is not reported as zero and model choices exclude unrelated 
   assert.equal(isScoringModel("gpt-4o"), true);
   assert.equal(isScoringModel("text-embedding-3-small"), false);
   assert.equal(isScoringModel("gpt-4o-realtime-preview"), false);
+});
+
+test("country and work type affect discovery queries, provider parameters, and previews", () => {
+  const scope = { country: "id", workType: "hybrid" as const };
+  const query = buildSearchQueryBody(["Operations"], scope);
+  assert.match(query, /Indonesia/);
+  assert.match(query, /hybrid/);
+  assert.doesNotMatch(query, /remote|United States|USA/);
+  assert.deepEqual(searchLocation(scope), { gl: "id", location: "Indonesia" });
+  const preview = buildSearchQueryPreview(["Operations"], 20, defaultPreferences.sources, scope);
+  assert.match(preview, /Indonesia/);
+  assert.doesNotMatch(preview, /remote|United States/);
+  for (const body of buildFirstPageSearchQueries(["Operations"], 20, scope))
+    assert.match(body, /hybrid[\s\S]*Indonesia/);
+  const unrestricted = buildSearchQueryBody(["Operations"], { country: "any", workType: "any" });
+  assert.equal(unrestricted, "(Operations)");
+  assert.deepEqual(searchLocation({ country: "any", workType: "any" }), {});
+  assert.match(
+    buildSearchQueryBody(["Operations"], { country: "sg", workType: "onsite" }),
+    /on-site[\s\S]*Singapore/,
+  );
+  assert.equal(
+    preferencesSchema.safeParse({ ...defaultPreferences, country: "invalid" }).success,
+    false,
+  );
+  assert.equal(
+    preferencesSchema.safeParse({ ...defaultPreferences, workType: "invalid" }).success,
+    false,
+  );
+  assert.equal(Object.values(countries).filter((name) => name === "United Kingdom").length, 1);
+});
+
+test("country and work type persist without creating job records", () => {
+  const item = installation();
+  try {
+    item.store.savePreferences({ ...defaultPreferences, country: "id", workType: "hybrid" });
+    assert.equal(item.store.preferences().country, "id");
+    assert.equal(item.store.preferences().workType, "hybrid");
+    assert.equal(item.store.totals().jobs, 0);
+    assert.deepEqual(item.store.runs(), []);
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("save readiness follows actual changes and rejects incomplete form input", () => {
+  const original = structuredClone(defaultPreferences);
+  assert.equal(searchChanged(original, defaultPreferences), false);
+  assert.equal(searchChanged({ ...original, country: "id" }, original), true);
+  assert.equal(searchChanged({ ...original, workType: "any" }, original), true);
+  assert.equal(
+    searchChanged({ ...original, sources: [...original.sources].reverse() }, original),
+    false,
+  );
+  assert.equal(
+    searchChanged({ ...original, scheduleDays: [...original.scheduleDays].reverse() }, original),
+    false,
+  );
+  assert.equal(searchChanged({ ...original, threshold: 80 }, original), false);
+  assert.equal(searchValid(original, false), false);
+  const configured = { ...original, roles: ["Operations"] };
+  assert.equal(searchValid(configured, false), true);
+  assert.equal(searchValid(configured, true), false);
+  assert.equal(profileValid("", "75"), false);
+  assert.equal(profileValid("Operations experience", "75"), true);
+  assert.equal(profileValid("Operations experience", ""), false);
+  assert.equal(profileValid("Operations experience", "101"), false);
+});
+
+test("existing preferences retain US remote behavior when upgraded", () => {
+  const directory = mkdtempSync(join(tmpdir(), "job-hunter-upgrade-"));
+  const path = join(directory, "workspace.sqlite");
+  try {
+    const first = new Store(path);
+    first.close();
+    const { country, workType, ...previous } = defaultPreferences;
+    assert.equal(country, "us");
+    assert.equal(workType, "remote");
+    const db = new Database(path);
+    try {
+      db.prepare("INSERT INTO preferences(id,value) VALUES(1,?)").run(
+        JSON.stringify({ ...previous, limit: 10 }),
+      );
+    } finally {
+      db.close();
+    }
+    const upgraded = new Store(path);
+    try {
+      assert.deepEqual(upgraded.preferences(), defaultPreferences);
+    } finally {
+      upgraded.close();
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

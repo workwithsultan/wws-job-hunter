@@ -218,7 +218,8 @@ export function Choice({
       if (event.key === "ArrowUp") next = (index - 1 + buttons.length) % buttons.length;
       if (event.key === "Home") next = 0;
       if (event.key === "End") next = buttons.length - 1;
-      buttons[next]?.focus();
+      buttons[next]?.scrollIntoView({ block: "nearest" });
+      buttons[next]?.focus({ preventScroll: true });
     } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
       typed.current = {
         text: Date.now() - typed.current.time > 700 ? event.key : typed.current.text + event.key,
@@ -227,7 +228,10 @@ export function Choice({
       const option = options.find((item) =>
         item.label.toLowerCase().startsWith(typed.current.text.toLowerCase()),
       );
-      if (option) buttons[options.indexOf(option)]?.focus();
+      if (option) {
+        buttons[options.indexOf(option)]?.scrollIntoView({ block: "nearest" });
+        buttons[options.indexOf(option)]?.focus({ preventScroll: true });
+      }
     }
   };
   return (
@@ -250,7 +254,12 @@ export function Choice({
           collisionPadding={16}
           onOpenAutoFocus={(event) => {
             event.preventDefault();
-            content.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+            requestAnimationFrame(() => {
+              const selected =
+                content.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
+              selected?.scrollIntoView({ block: "nearest" });
+              selected?.focus({ preventScroll: true });
+            });
           }}
           onKeyDown={keyboard}
         >
@@ -263,7 +272,7 @@ export function Choice({
                 aria-selected={option.value === value}
                 tabIndex={option.value === value ? 0 : -1}
                 onClick={() => {
-                  onChange(option.value);
+                  if (option.value !== value) onChange(option.value);
                   setOpen(false);
                 }}
               >
@@ -295,7 +304,7 @@ interface ChipInputProps extends ControlProps {
   onChange: (value: string[]) => void;
   onError: (message: string) => void;
   label: string;
-  onEditing: () => void;
+  onEditing: (pending: boolean) => void;
 }
 export function ChipInput({
   value,
@@ -339,6 +348,7 @@ export function ChipInput({
       return;
     onChange([...value, ...values]);
     setEntry("");
+    onEditing(false);
     onError("");
   };
   const remove = async (term: string) => {
@@ -376,7 +386,7 @@ export function ChipInput({
         autoComplete="off"
         onChange={(event) => {
           setEntry(event.target.value);
-          onEditing();
+          onEditing(Boolean(event.target.value.trim()));
           onError("");
         }}
         onKeyDown={(event) => {
@@ -393,7 +403,14 @@ export function ChipInput({
           const text = event.clipboardData.getData("text");
           if (/[,\n]/.test(text)) {
             event.preventDefault();
-            void add(text);
+            const input = event.currentTarget;
+            const merged =
+              entry.slice(0, input.selectionStart ?? entry.length) +
+              text +
+              entry.slice(input.selectionEnd ?? entry.length);
+            setEntry(merged);
+            onEditing(Boolean(merged.trim()));
+            void add(merged);
           }
         }}
       />

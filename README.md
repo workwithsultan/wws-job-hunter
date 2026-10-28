@@ -1,6 +1,6 @@
 # Job Hunter
 
-An application for discovering US remote jobs, reviewing AI match scores, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
+An application for discovering jobs across countries, reviewing AI match scores, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
 
 ## Install and run
 
@@ -12,7 +12,7 @@ Requires **Node.js 24 LTS or newer** and npm. Download and extract the source pa
 4. Start it: `npm start`
 5. Open **http://127.0.0.1:8790**.
 
-Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles and job sites. Your first search starts only after you explicitly confirm it.
+Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, work type, and job sites. Your first search starts only after you explicitly confirm it.
 
 API calls consume your own provider credits. An unconfigured installation makes no provider calls. Connecting keys verifies model access or account quota; these metadata requests do not run job discovery or AI scoring. No sample jobs, profiles, credentials, or application records are included.
 
@@ -20,14 +20,16 @@ API calls consume your own provider credits. An unconfigured installation makes 
 
 - **Jobs:** filter opportunities, read match reasons, open original postings, and export CSV.
 - **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
-- **Search:** edit roles, exclusion keywords, sources and schedule, and view actual execution history.
+- **Search:** edit roles, exclusion keywords, country, work type, sources and schedule, and view actual execution history.
 - **Settings:** edit your profile, match threshold, and provider keys.
+
+Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Provider Connect buttons require a key; model and appearance selections save immediately only when changed.
 
 Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Railway, Telegram, and a separate database server are not required. Existing historical spreadsheets are not imported or modified.
 
 ## Search behavior
 
-Discovery uses SerpApi's Google search API for remote United States postings on Greenhouse, Lever, Ashby, Workable, and Workday. Results cover the last day. URL normalization prevents repeated imports of the same posting. Excluded title keywords are applied locally to titles only.
+Discovery uses SerpApi's Google search API for postings on Greenhouse, Lever, Ashby, Workable, and Workday. Choose a supported country or **Any country**, and **Remote**, **Hybrid**, **On-site**, or **Any type**. New and upgraded installations retain the previous United States / Remote defaults. Country affects query terms and provider localization; work type affects query terms. Any country omits country terms and localization parameters. Queries use English terms. These are discovery preferences, so review each posting's actual location, work arrangement, and eligibility. Changing preferences affects future searches and keeps existing jobs. Results cover the last day. URL normalization prevents repeated imports of the same posting. Excluded title keywords are applied locally to titles only.
 
 Readable descriptions are scored against your own profile using OpenAI's Responses API and structured output. Your profile and each description are sent to OpenAI with response storage disabled. Scores are suggestions for your own job search; they do not confirm eligibility or submit an application.
 

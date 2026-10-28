@@ -58,7 +58,11 @@ export class Store {
       throw new Error("Saved preferences are invalid.");
     const value = { ...saved };
     if ("limit" in value) delete value.limit;
-    return preferencesSchema.parse(value);
+    return preferencesSchema.parse({
+      country: defaultPreferences.country,
+      workType: defaultPreferences.workType,
+      ...value,
+    });
   }
   savePreferences(value: Preferences): void {
     this.db

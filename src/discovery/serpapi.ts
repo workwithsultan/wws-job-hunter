@@ -1,3 +1,4 @@
+import { searchLocation, defaultSearchScope, type SearchScope } from "../shared/search-scope.js";
 import { setTimeout as delay } from "node:timers/promises";
 import type { JobCandidate } from "./types.js";
 import { ATS_CORE_DISCOVERY_DOMAINS } from "./constants.js";
@@ -8,9 +9,7 @@ import {
 } from "./search-query.js";
 
 const SERPAPI_GOOGLE_DOMAIN = "google.com";
-const SERPAPI_COUNTRY = "us";
 const SERPAPI_LANGUAGE = "en";
-const SERPAPI_LOCATION = "United States";
 const SERPAPI_FETCH_ATTEMPTS = 4;
 const SERPAPI_FETCH_TIMEOUT_MS = 60000;
 const SERPAPI_RETRY_BASE_DELAY_MS = 5000;
@@ -289,9 +288,10 @@ async function fetchSerpApiPage(args: {
   domain: string;
   limit: number;
   queryBody: string;
+  scope: SearchScope;
   signal?: AbortSignal | undefined;
 }): Promise<JobCandidate[]> {
-  const { keyPool, domain, limit, queryBody, signal } = args;
+  const { keyPool, domain, limit, queryBody, scope, signal } = args;
   const pageSize = 10;
   const jobs: JobCandidate[] = [];
   const sourceLabel = sourceLabelForDomain(domain);
@@ -305,9 +305,8 @@ async function fetchSerpApiPage(args: {
         api_key: keyPool.currentKey(),
         q: buildQuery(domain, queryBody),
         google_domain: SERPAPI_GOOGLE_DOMAIN,
-        gl: SERPAPI_COUNTRY,
         hl: SERPAPI_LANGUAGE,
-        location: SERPAPI_LOCATION,
+        ...searchLocation(scope),
         num: String(Math.min(pageSize, limit - start)),
         tbs: "qdr:d",
       });
@@ -391,6 +390,7 @@ export async function discoverJobs(
   discoveryTitleTerms: readonly string[],
   domains: readonly string[] = ATS_CORE_DISCOVERY_DOMAINS,
   signal?: AbortSignal,
+  scope: SearchScope = defaultSearchScope,
 ): Promise<JobCandidate[]> {
   signal?.throwIfAborted();
   const keyPool = new SerpApiKeyPool(apiKey);
@@ -400,7 +400,7 @@ export async function discoverJobs(
     signal?.throwIfAborted();
     try {
       if (FIRST_PAGE_SEARCH_DOMAINS.includes(domain)) {
-        const queries = buildFirstPageSearchQueries(discoveryTitleTerms, limitPerSource);
+        const queries = buildFirstPageSearchQueries(discoveryTitleTerms, limitPerSource, scope);
         const jobs = new Map<string, JobCandidate>();
         for (const queryBody of queries) {
           const page = await fetchSerpApiPage({
@@ -408,6 +408,7 @@ export async function discoverJobs(
             domain,
             limit: Math.min(10, limitPerSource),
             queryBody,
+            scope,
             signal,
           });
           for (const job of page) jobs.set(job.link, job);
@@ -419,7 +420,8 @@ export async function discoverJobs(
             keyPool,
             domain,
             limit: limitPerSource,
-            queryBody: buildSearchQueryBody(discoveryTitleTerms),
+            queryBody: buildSearchQueryBody(discoveryTitleTerms, scope),
+            scope,
             signal,
           }),
         );

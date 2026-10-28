@@ -1,8 +1,16 @@
-export const REQUIRED_LOCATION_QUERY_CLAUSES = [
-  // All previous remote phrases contain this term, so the alternatives were redundant.
-  `remote`,
-  `("United States" OR USA OR "U.S" OR "US")`,
-] as const;
+import { countryName, defaultSearchScope, type SearchScope } from "../shared/search-scope.js";
+
+function locationClauses(scope: SearchScope): string[] {
+  const clauses: string[] = [];
+  if (scope.workType === "remote") clauses.push("remote");
+  if (scope.workType === "hybrid") clauses.push("hybrid");
+  if (scope.workType === "onsite")
+    clauses.push('("on-site" OR onsite OR "on site" OR "in-office")');
+  if (scope.country === "us") clauses.push('("United States" OR USA OR "U.S" OR "US")');
+  else if (scope.country === "uk") clauses.push('("United Kingdom" OR UK OR Britain)');
+  else if (scope.country !== "any") clauses.push(formatSearchTerm(countryName(scope.country)));
+  return clauses;
+}
 
 function formatSearchTerm(term: string): string {
   const normalized = term.trim();
@@ -34,13 +42,16 @@ function compactSearchTerms(discoveryTitleTerms: readonly string[]): string[] {
   });
 }
 
-function queryForTerms(formattedTerms: readonly string[]): string {
+function queryForTerms(formattedTerms: readonly string[], scope: SearchScope): string {
   // Rejected terms apply only to titles after discovery, never to page descriptions.
-  return [`(${formattedTerms.join("\nOR ")})`, ...REQUIRED_LOCATION_QUERY_CLAUSES].join("\n");
+  return [`(${formattedTerms.join("\nOR ")})`, ...locationClauses(scope)].join("\n");
 }
 
-export function buildSearchQueryBody(discoveryTitleTerms: readonly string[]): string {
-  return queryForTerms(compactSearchTerms(discoveryTitleTerms));
+export function buildSearchQueryBody(
+  discoveryTitleTerms: readonly string[],
+  scope: SearchScope = defaultSearchScope,
+): string {
+  return queryForTerms(compactSearchTerms(discoveryTitleTerms), scope);
 }
 
 export const FIRST_PAGE_SEARCH_DOMAINS: readonly string[] = [
@@ -52,6 +63,7 @@ export const FIRST_PAGE_SEARCH_DOMAINS: readonly string[] = [
 export function buildFirstPageSearchQueries(
   discoveryTitleTerms: readonly string[],
   limitPerSource: number,
+  scope: SearchScope = defaultSearchScope,
 ): string[] {
   if (!Number.isInteger(limitPerSource) || limitPerSource < 1) {
     throw new Error("The source result limit must be a positive integer.");
@@ -62,7 +74,7 @@ export function buildFirstPageSearchQueries(
   const queries: string[] = [];
   // Independent first pages avoid the provider's unreliable pagination without adding searches.
   for (let index = 0; index < terms.length; index += batchSize) {
-    queries.push(queryForTerms(terms.slice(index, index + batchSize)));
+    queries.push(queryForTerms(terms.slice(index, index + batchSize), scope));
   }
   return queries;
 }
@@ -71,11 +83,12 @@ export function buildSearchQueryPreview(
   discoveryTitleTerms: readonly string[],
   limitPerSource: number,
   domains: readonly string[],
+  scope: SearchScope = defaultSearchScope,
 ): string {
-  const standard = buildSearchQueryBody(discoveryTitleTerms);
+  const standard = buildSearchQueryBody(discoveryTitleTerms, scope);
   const firstPageDomains = domains.filter((domain) => FIRST_PAGE_SEARCH_DOMAINS.includes(domain));
   if (firstPageDomains.length === 0) return standard;
-  const queries = buildFirstPageSearchQueries(discoveryTitleTerms, limitPerSource);
+  const queries = buildFirstPageSearchQueries(discoveryTitleTerms, limitPerSource, scope);
   const sections = domains.some((domain) => !FIRST_PAGE_SEARCH_DOMAINS.includes(domain))
     ? [`Standard query:\n${standard}`]
     : [];

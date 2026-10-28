@@ -140,7 +140,7 @@ export function ProviderSettings({
     }
   };
   const selectModel = async (model: string) => {
-    if (busy || !model) return;
+    if (busy || !model || model === workspace.connections.model) return;
     setBusy("model");
     setModelsError("");
     try {
@@ -230,12 +230,16 @@ export function ProviderSettings({
               />
             </Field>
             <div className="connect-actions">
-              <button className="primary" disabled={locked}>
+              <button
+                className="primary"
+                disabled={locked || !providerKeySchema.safeParse({ key: openaiKey }).success}
+              >
                 {busy === "openai" ? "Connecting…" : "Connect"}
               </button>
               {editOpenai && (
                 <button
                   type="button"
+                  disabled={locked}
                   onClick={() => {
                     setOpenaiKey("");
                     setEditOpenai(false);
@@ -350,12 +354,16 @@ export function ProviderSettings({
               />
             </Field>
             <div className="connect-actions">
-              <button className="primary" disabled={locked}>
+              <button
+                className="primary"
+                disabled={locked || !providerKeySchema.safeParse({ key: serpapiKey }).success}
+              >
                 {busy === "serpapi" ? "Connecting…" : "Connect"}
               </button>
               {workspace.connections.serpapi && (
                 <button
                   type="button"
+                  disabled={locked}
                   onClick={() => {
                     setSerpapiKey("");
                     setAddSerp(false);

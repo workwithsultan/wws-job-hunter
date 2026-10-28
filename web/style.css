@@ -1025,6 +1025,7 @@ details summary {
   box-shadow: var(--popover-shadow);
 }
 .options {
+  overscroll-behavior: contain;
   width: max(var(--radix-popover-trigger-width), 10rem);
   max-height: min(20rem, var(--radix-popover-content-available-height));
 }
@@ -1321,11 +1322,6 @@ details summary {
   flex-wrap: wrap;
   gap: 1rem;
 }
-.scope-label {
-  font-size: 0.75rem;
-  line-height: 1rem;
-  color: var(--muted);
-}
 .keyword-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1534,11 +1530,15 @@ details summary {
   }
 }
 @media (max-width: 767px) {
+  .section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
   .keyword-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .section-heading {
-    align-items: start;
   }
   .page-heading {
     align-items: start;

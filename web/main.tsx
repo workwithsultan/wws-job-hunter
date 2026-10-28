@@ -41,6 +41,9 @@ import {
   type SearchRun,
   type Workspace,
 } from "../src/shared/model";
+import { countries } from "../src/shared/countries";
+import { workTypes } from "../src/shared/search-scope";
+import { searchChanged, searchValid, profileValid } from "./form-state";
 import { searchBudget } from "../src/shared/budget";
 import { ProviderSettings, useQuota } from "./providers";
 import { api, ApiError, dateText } from "./api";
@@ -623,7 +626,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (!job || busy) return;
+    if (!job || busy || !dirty) return;
     setBusy(true);
     try {
       await api("/api/jobs/" + job.id, "PUT", { status, notes });
@@ -750,7 +753,11 @@ function SearchPage({
   active: boolean;
 }) {
   const [draft, setDraft] = useState(workspace.preferences);
-  const [dirty, setDirty] = useState(false);
+  const [baseline, setBaseline] = useState(workspace.preferences);
+  const [pending, setPending] = useState({ roles: false, exclusions: false });
+  const hasPending = pending.roles || pending.exclusions;
+  const dirty = searchChanged(draft, baseline) || hasPending;
+  const valid = searchValid(draft, hasPending);
   const [chipVersion, setChipVersion] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
@@ -765,7 +772,10 @@ function SearchPage({
   const budget = searchBudget(quota, draft);
   useDraftWarning(dirty);
   useEffect(() => {
-    if (!dirty) setDraft(workspace.preferences);
+    if (!dirty) {
+      setDraft(workspace.preferences);
+      setBaseline(workspace.preferences);
+    }
   }, [workspace.preferences, dirty]);
   useEffect(() => {
     if (workspace.running) setHistoryOpen(true);
@@ -806,13 +816,12 @@ function SearchPage({
   }, [workspace.preferences, workspace.connections.serpapi]);
   const change = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setDraft((v) => ({ ...v, [key]: value }));
-    setDirty(true);
     setSaved(false);
     setErrors((v) => ({ ...v, [key]: "" }));
   };
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || !dirty) return;
     const candidate = {
       ...draft,
       profile: workspace.preferences.profile,
@@ -837,7 +846,8 @@ function SearchPage({
     try {
       await api("/api/preferences", "PUT", candidate);
       await reload();
-      setDirty(false);
+      setDraft(candidate);
+      setBaseline(candidate);
       setSaved(true);
     } catch (error) {
       if (error instanceof ApiError && Object.keys(error.fields).length) setErrors(error.fields);
@@ -863,16 +873,13 @@ function SearchPage({
       <form onSubmit={(event) => void save(event)} noValidate className="search-form">
         <fieldset disabled={workspace.running || busy}>
           <section className="search-section">
-            <div className="section-heading">
-              <h2>Job titles</h2>
-              <span className="scope-label">Remote · United States</span>
-            </div>
+            <h2>Job titles</h2>
             <div className="keyword-grid">
               <Field id="search-roles" label="Include (required)" error={errors.roles}>
                 <ChipInput
                   key={"roles-" + chipVersion}
-                  onEditing={() => {
-                    setDirty(true);
+                  onEditing={(value) => {
+                    setPending((v) => ({ ...v, roles: value }));
                     setSaved(false);
                   }}
                   value={draft.roles}
@@ -884,14 +891,38 @@ function SearchPage({
               <Field id="search-exclusions" label="Exclude (optional)" error={errors.exclusions}>
                 <ChipInput
                   key={"exclusions-" + chipVersion}
-                  onEditing={() => {
-                    setDirty(true);
+                  onEditing={(value) => {
+                    setPending((v) => ({ ...v, exclusions: value }));
                     setSaved(false);
                   }}
                   value={draft.exclusions}
                   onChange={(value) => change("exclusions", value)}
                   onError={(message) => setErrors((v) => ({ ...v, exclusions: message }))}
                   label="Excluded keyword"
+                />
+              </Field>
+            </div>
+          </section>
+          <section className="search-section">
+            <h2>Location and work type</h2>
+            <div className="keyword-grid">
+              <Field id="search-country" label="Country (required)" error={errors.country}>
+                <Choice
+                  value={draft.country}
+                  onChange={(value) => change("country", value)}
+                  label="Country"
+                  options={[
+                    { value: "any", label: "Any country" },
+                    ...Object.entries(countries).map(([value, label]) => ({ value, label })),
+                  ]}
+                />
+              </Field>
+              <Field id="search-workType" label="Work type (required)" error={errors.workType}>
+                <Choice
+                  value={draft.workType}
+                  onChange={(value) => change("workType", value as Preferences["workType"])}
+                  label="Work type"
+                  options={Object.entries(workTypes).map(([value, label]) => ({ value, label }))}
                 />
               </Field>
             </div>
@@ -1012,7 +1043,7 @@ function SearchPage({
             )}
           </section>
           <div className="form-actions">
-            <button className="primary" disabled={busy || !dirty}>
+            <button className="primary" disabled={busy || !dirty || !valid}>
               {busy ? "Saving…" : "Save changes"}
             </button>
             {dirty && (
@@ -1021,8 +1052,9 @@ function SearchPage({
                 disabled={busy}
                 onClick={() => {
                   setDraft(workspace.preferences);
+                  setBaseline(workspace.preferences);
+                  setPending({ roles: false, exclusions: false });
                   setChipVersion((value) => value + 1);
-                  setDirty(false);
                   setErrors({});
                 }}
               >
@@ -1101,7 +1133,9 @@ function SettingsPage({
 }) {
   const [profile, setProfile] = useState(workspace.preferences.profile);
   const [threshold, setThreshold] = useState(String(workspace.preferences.threshold));
-  const [dirty, setDirty] = useState(false);
+  const [baseline, setBaseline] = useState(workspace.preferences);
+  const dirty = profile !== baseline.profile || threshold !== String(baseline.threshold);
+  const valid = profileValid(profile, threshold);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1109,13 +1143,14 @@ function SettingsPage({
   useDraftWarning(dirty);
   useEffect(() => {
     if (!dirty) {
+      setBaseline(workspace.preferences);
       setProfile(workspace.preferences.profile);
       setThreshold(String(workspace.preferences.threshold));
     }
   }, [workspace.preferences, dirty]);
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy) return;
+    if (busy || !dirty) return;
     const fields: Record<string, string> = {};
     if (profile.trim().length < 10)
       fields.profile = "Describe your experience and requirements in at least 10 characters.";
@@ -1140,7 +1175,8 @@ function SettingsPage({
         threshold: Number(threshold),
       });
       await reload();
-      setDirty(false);
+      setThreshold(String(Number(threshold)));
+      setBaseline({ ...workspace.preferences, profile, threshold: Number(threshold) });
       setErrors({});
       setSaved(true);
     } catch (error) {
@@ -1165,9 +1201,17 @@ function SettingsPage({
               className="profile-input"
               value={profile}
               maxLength={12000}
+              onBlur={() =>
+                setErrors((v) => ({
+                  ...v,
+                  profile:
+                    profile !== baseline.profile && profile.trim().length < 10
+                      ? "Describe your experience and requirements in at least 10 characters."
+                      : "",
+                }))
+              }
               onChange={(event) => {
                 setProfile(event.target.value);
-                setDirty(true);
                 setSaved(false);
                 setErrors((v) => ({ ...v, profile: "" }));
               }}
@@ -1186,9 +1230,20 @@ function SettingsPage({
                 max="100"
                 step="1"
                 value={threshold}
+                onBlur={() =>
+                  setErrors((v) => ({
+                    ...v,
+                    threshold:
+                      !threshold.trim() ||
+                      !Number.isInteger(Number(threshold)) ||
+                      Number(threshold) < 0 ||
+                      Number(threshold) > 100
+                        ? "Enter a whole number from 0 to 100."
+                        : "",
+                  }))
+                }
                 onChange={(event) => {
                   setThreshold(event.target.value);
-                  setDirty(true);
                   setSaved(false);
                   setErrors((v) => ({ ...v, threshold: "" }));
                 }}
@@ -1196,14 +1251,16 @@ function SettingsPage({
             </Field>
           </div>
           <div className="form-actions">
-            <button className="primary" disabled={!dirty || busy}>
+            <button className="primary" disabled={!dirty || !valid || busy}>
               {busy ? "Saving…" : "Save profile"}
             </button>
             {dirty && (
               <button
                 type="button"
                 onClick={() => {
-                  setDirty(false);
+                  setProfile(workspace.preferences.profile);
+                  setThreshold(String(workspace.preferences.threshold));
+                  setBaseline(workspace.preferences);
                   setErrors({});
                 }}
               >
