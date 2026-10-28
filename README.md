@@ -77,7 +77,7 @@ This release serves only on a loopback address. Remote server installations can 
 
 Preserve both the database and its environment file. CSV export is for portability, not a full backup. The app does not delete old jobs automatically.
 
-Database schema 4 removes obsolete schedule settings while retaining PDF storage and nullable percentage scores without inventing values for old records. Existing scores, application history and notes are preserved; older application records without a decision remain visible as review items. Records without a usable score display Needs review. The old minimum-threshold preference remains removed.
+Database schema 5 adds opportunity timestamps for the rolling 24-hour Jobs window and retains schema 4’s removal of obsolete schedule settings, PDF storage, and nullable percentage scores without inventing values for old records. Existing scores, application history and notes are preserved; older application records without a decision remain visible as review items. Records without a usable score display Needs review. The old minimum-threshold preference remains removed.
 
 ## Development and verification
 
