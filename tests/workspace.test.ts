@@ -613,3 +613,35 @@ test("profile and search updates preserve each other's saved settings", async ()
     item.cleanup();
   }
 });
+
+test("search logs expose paginated history without creating runs and validate filters", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, resolve("."), 8790);
+  try {
+    const headers = { host: "127.0.0.1:8790" };
+    for (const query of [
+      "",
+      "?page=20",
+      "?status=failed",
+      "?status=completed",
+      "?status=interrupted",
+      "?status=running",
+    ]) {
+      const response = await app.inject({ method: "GET", url: "/api/runs" + query, headers });
+      assert.equal(response.statusCode, 200);
+      assert.deepEqual(response.json(), { runs: [], total: 0, page: 1, pages: 1 });
+    }
+    for (const query of ["?page=0", "?page=1.5", "?status=unknown", "?page=1000001"]) {
+      assert.equal(
+        (await app.inject({ method: "GET", url: "/api/runs" + query, headers })).statusCode,
+        400,
+      );
+    }
+    assert.deepEqual(item.store.runs(), []);
+    assert.equal(item.store.totals().jobs, 0);
+  } finally {
+    await app.close();
+    await item.runner.stop();
+    item.cleanup();
+  }
+});

@@ -29,6 +29,7 @@ import {
   Play,
   Search as SearchIcon,
   Settings2,
+  ScrollText,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -42,7 +43,6 @@ import {
   type JobList,
   type JobStatus,
   type Preferences,
-  type SearchRun,
   type Workspace,
 } from "../src/shared/model";
 import { countries } from "../src/shared/countries";
@@ -67,6 +67,7 @@ import {
   useConfirm,
   useDraftWarning,
 } from "./ui";
+import { SearchLogs } from "./search-logs";
 import { JobQuota } from "./job-quota";
 import "./style.css";
 
@@ -76,6 +77,7 @@ const nav = [
   { path: "/jobs", label: "Jobs", emoji: "💼", icon: BriefcaseBusiness },
   { path: "/applications", label: "Applications", emoji: "📋", icon: FileText },
   { path: "/search", label: "Search", emoji: "🔎", icon: SearchIcon },
+  { path: "/logs", label: "Search logs", emoji: "📜", icon: ScrollText },
   { path: "/settings", label: "Settings", emoji: "⚙️", icon: Settings2 },
 ];
 const errorMessage = (error: unknown) =>
@@ -191,7 +193,7 @@ function App() {
         return;
       await api("/api/runs", "POST", {});
       setWorkspace((value) => (value ? { ...value, running: true } : value));
-      navigate("/search");
+      navigate("/logs");
       await reload();
     } catch (error) {
       setFailure(errorMessage(error));
@@ -332,8 +334,14 @@ function App() {
                   <SearchPage
                     workspace={workspace}
                     reload={reload}
-                    version={version}
                     active={location.pathname === "/search"}
+                  />
+                </section>
+                <section hidden={location.pathname !== "/logs"} className="page-content">
+                  <SearchLogs
+                    active={location.pathname === "/logs"}
+                    version={version}
+                    timezone={workspace.preferences.timezone}
                   />
                 </section>
                 <section hidden={location.pathname !== "/settings"} className="page-content">
@@ -544,7 +552,7 @@ function JobsPage({
   const emptyAction = workspace.running
     ? "View search progress"
     : searchFailed
-      ? "Review search history"
+      ? "Review search logs"
       : setupIncomplete
         ? "Set up your search"
         : "Review search preferences";
@@ -621,7 +629,10 @@ function JobsPage({
                 ? "Once you apply, update the job’s status. Your applications and notes will appear here."
                 : emptyMessage}
             </p>
-            <Link className="button primary" to={applications ? "/jobs" : "/search"}>
+            <Link
+              className="button primary"
+              to={applications ? "/jobs" : workspace.running || searchFailed ? "/logs" : "/search"}
+            >
               {applications ? "Browse jobs" : emptyAction}
               <ArrowRight />
             </Link>
@@ -916,12 +927,10 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
 function SearchPage({
   workspace,
   reload,
-  version,
   active,
 }: {
   workspace: Workspace;
   reload: () => Promise<void>;
-  version: number;
   active: boolean;
 }) {
   const [draft, setDraft] = useState(workspace.preferences);
@@ -947,10 +956,6 @@ function SearchPage({
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [runs, setRuns] = useState<SearchRun[] | null>(null);
-  const [historyError, setHistoryError] = useState("");
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyRetry, setHistoryRetry] = useState(0);
   const [query, setQuery] = useState("");
   const {
     quota,
@@ -966,26 +971,6 @@ function SearchPage({
       setBaseline(workspace.preferences);
     }
   }, [workspace.preferences, dirty, hasPending, draft]);
-  useEffect(() => {
-    if (workspace.running) setHistoryOpen(true);
-  }, [workspace.running]);
-  useEffect(() => {
-    if (!active) return;
-    let disposed = false;
-    void api<{ runs: SearchRun[] }>("/api/runs")
-      .then((value) => {
-        if (!disposed) {
-          setRuns(value.runs);
-          setHistoryError("");
-        }
-      })
-      .catch((error) => {
-        if (!disposed) setHistoryError(errorMessage(error));
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [active, version, historyRetry]);
   useEffect(() => {
     if (!workspace.preferences.roles.length || !workspace.connections.serpapi) {
       setQuery("");
@@ -1307,49 +1292,6 @@ function SearchPage({
           </div>
         </fieldset>
       </form>
-      <details
-        className="history-details"
-        open={historyOpen}
-        onToggle={(event) => setHistoryOpen(event.currentTarget.open)}
-      >
-        <summary>Search history</summary>
-        {historyError ? (
-          <Alert onRetry={() => setHistoryRetry((v) => v + 1)}>{historyError}</Alert>
-        ) : !runs ? (
-          <Busy label="Loading search history…" />
-        ) : runs.length === 0 ? (
-          <p className="empty-history">No searches yet.</p>
-        ) : (
-          <div className="run-list">
-            {runs.map((run) => (
-              <article className="run-row" key={run.id}>
-                <div className="run-top">
-                  <span className={"badge run-" + run.status}>
-                    {run.status === "running"
-                      ? "Running"
-                      : run.status === "completed"
-                        ? "Completed"
-                        : run.status === "interrupted"
-                          ? "Interrupted"
-                          : "Failed"}
-                  </span>
-                  <time dateTime={run.startedAt}>{dateText(run.startedAt)}</time>
-                  <span className="caption">
-                    {run.trigger === "schedule" ? "Scheduled" : "Manual"}
-                  </span>
-                </div>
-                <p>{run.message}</p>
-                <div className="run-counts">
-                  <span>{run.found} found</span>
-                  <span>{run.added} added</span>
-                  <span>{run.matches} matches</span>
-                  <span>{run.review} need review</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </details>
       {query && (
         <details className="query-details">
           <summary>Search query</summary>

@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import {
   sourceDomains,
+  runStatusLabels,
   preferencesSchema,
   profilePreferencesSchema,
   searchPreferencesSchema,
@@ -274,7 +275,23 @@ export function buildApp(
       return { ok: true };
     }),
   );
-  app.get("/api/runs", async () => ({ runs: store.runs() }));
+  app.get("/api/runs", async (request) => {
+    const query = z
+      .object({
+        page: z.coerce.number().int().min(1).max(1000000).default(1),
+        status: z
+          .enum(
+            Object.keys(runStatusLabels) as [
+              keyof typeof runStatusLabels,
+              ...Array<keyof typeof runStatusLabels>,
+            ],
+          )
+          .optional(),
+      })
+      .strict()
+      .parse(request.query);
+    return store.listRuns(query);
+  });
   app.get("/api/query", async (_request, reply) => {
     const p = store.preferences();
     if (!p.roles.length || !config.serpApiKeys().length) return { query: "" };

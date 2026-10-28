@@ -8,6 +8,7 @@ import {
   type JobStatus,
   type Preferences,
   type SearchRun,
+  type RunList,
   type Workspace,
 } from "../shared/model.js";
 
@@ -186,6 +187,21 @@ export class Store {
   }
   runs(): SearchRun[] {
     return this.db.prepare("SELECT * FROM runs ORDER BY id DESC LIMIT 50").all() as SearchRun[];
+  }
+  listRuns(query: { page: number; status?: SearchRun["status"] | undefined }): RunList {
+    const where = query.status ? " WHERE status=?" : "";
+    const values = query.status ? [query.status] : [];
+    const total = (
+      this.db.prepare("SELECT count(*) AS count FROM runs" + where).get(...values) as {
+        count: number;
+      }
+    ).count;
+    const pages = Math.max(1, Math.ceil(total / 25));
+    const page = Math.min(query.page, pages);
+    const runs = this.db
+      .prepare("SELECT * FROM runs" + where + " ORDER BY id DESC LIMIT 25 OFFSET ?")
+      .all(...values, (page - 1) * 25) as SearchRun[];
+    return { runs, total, page, pages };
   }
   startRun(trigger: SearchRun["trigger"]): number {
     return Number(

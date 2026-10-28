@@ -20,12 +20,15 @@ API calls consume your own provider credits. An unconfigured installation makes 
 
 - **Jobs:** filter opportunities, read match reasons, open original postings, export CSV, and check SerpApi quota.
 - **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
-- **Search:** edit roles, exclusion keywords, country, work type and schedule, and view actual execution history.
+- **Search:** edit roles, exclusion keywords, country, work type and schedule.
+- **Search logs:** review search executions in a table with status, time, duration, manual or scheduled trigger, result counts, and full progress or error messages.
 - **Settings:** edit your profile and provider keys.
 
 Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Saving forms, changing models, adding keywords or keys, and deleting saved items require confirmation. Cancel and Escape preserve the current draft without saving it. Searches wait until pending edits and operations finish. Resume and search settings save separately so one form cannot overwrite the other. Provider Connect buttons require valid input; appearance changes apply immediately.
 
 Country flags and contextual emoji use the device’s native emoji font, including Apple emoji on Apple devices. Country names remain readable and keyboard searchable. The interface supports light, dark, and system appearance.
+
+Search logs are ordered newest first, with status filters and 25 rows per page. Running searches update automatically while the app is open. Starting a search opens its log view. Succeeded means the run completed; Failed reports a search error, and Interrupted identifies a run stopped by a server shutdown. Filter and page selections stay in the URL. Refresh reloads history without starting a search. Setup or connection errors before a run starts remain visible where they occur and do not create phantom history records.
 
 Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Railway, Telegram, and a separate database server are not required. Existing historical spreadsheets are not imported or modified.
 

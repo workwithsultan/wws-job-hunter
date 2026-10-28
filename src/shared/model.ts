@@ -129,6 +129,18 @@ export interface SearchRun {
   message: string;
   trigger: "manual" | "schedule";
 }
+export const runStatusLabels = {
+  running: "Running",
+  completed: "Succeeded",
+  failed: "Failed",
+  interrupted: "Interrupted",
+} as const;
+export interface RunList {
+  runs: SearchRun[];
+  total: number;
+  page: number;
+  pages: number;
+}
 export interface SavedKey {
   id: string;
   lastFour: string;
