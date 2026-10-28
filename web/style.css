@@ -582,10 +582,6 @@ td:last-child {
 tbody tr:last-child td {
   border-bottom: 0;
 }
-.numeric {
-  text-align: end;
-  font-variant-numeric: tabular-nums;
-}
 .job-title {
   display: inline-flex;
   align-items: center;
@@ -617,10 +613,6 @@ tbody tr:last-child td {
   line-height: 1rem;
   white-space: normal;
 }
-.score {
-  font-variant-numeric: tabular-nums;
-}
-.score.good,
 .status-ready,
 .status-interviewing,
 .status-offer,
@@ -717,9 +709,6 @@ tbody tr:last-child td {
 .field[data-invalid="true"] > textarea,
 .field[data-invalid="true"] > .choice-trigger {
   border-color: var(--error);
-}
-.short-field {
-  max-width: 15rem;
 }
 .check-line {
   display: flex;
@@ -968,11 +957,6 @@ details summary {
   align-items: center;
   gap: 1rem;
 }
-.detail-score {
-  font-size: 0.875rem;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
 .match-reason {
   font-size: 0.875rem;
   line-height: 1.25rem;
@@ -1157,9 +1141,6 @@ details summary {
   }
   .day-options {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .short-field {
-    max-width: 100%;
   }
   .drawer {
     padding: 1rem;
@@ -1615,4 +1596,11 @@ details summary {
 .resume-review-text {
   min-height: 16rem;
   max-height: 50vh;
+}
+
+.assessment-match {
+  color: var(--success);
+}
+.assessment-review {
+  color: var(--warning);
 }

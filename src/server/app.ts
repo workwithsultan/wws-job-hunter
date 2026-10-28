@@ -1,3 +1,4 @@
+import { assessmentLabel } from "../shared/assessment.js";
 import Fastify, { type FastifyReply } from "fastify";
 import helmet from "@fastify/helmet";
 import staticFiles from "@fastify/static";
@@ -292,7 +293,7 @@ export function buildApp(
           job.title,
           job.url,
           job.source,
-          job.score,
+          assessmentLabel(job.assessment),
           job.reason,
           job.status,
           job.notes,
@@ -304,7 +305,7 @@ export function buildApp(
     return reply
       .header("Content-Type", "text/csv; charset=utf-8")
       .header("Content-Disposition", 'attachment; filename="job-hunter.csv"')
-      .send(["Title,URL,Source,Score,Reason,Status,Notes,Added", ...records].join("\r\n"));
+      .send(["Title,URL,Source,Assessment,Reason,Status,Notes,Added", ...records].join("\r\n"));
   });
   const publicDir = resolve(root, "public");
   if (existsSync(resolve(publicDir, "index.html"))) {

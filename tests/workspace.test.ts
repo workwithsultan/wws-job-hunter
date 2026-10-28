@@ -1,3 +1,4 @@
+import { assessmentSchema, assessmentLabel, assessmentStatus } from "../src/shared/assessment.js";
 import { test } from "node:test";
 import Database from "better-sqlite3";
 import {
@@ -14,7 +15,7 @@ import { join, resolve } from "node:path";
 import { Store } from "../src/server/store.js";
 import { Configuration } from "../src/server/config.js";
 import { searchBudget, remainingDays, dailySearchTarget } from "../src/shared/budget.js";
-import { isScoringModel } from "../src/server/providers.js";
+import { isAssessmentModel } from "../src/server/providers.js";
 import { Runner } from "../src/server/runner.js";
 import { buildApp } from "../src/server/app.js";
 import { defaultPreferences, preferencesSchema } from "../src/shared/model.js";
@@ -55,7 +56,7 @@ test("a new installation starts without jobs, runs, profile data, or provider ke
   try {
     assert.deepEqual(item.store.totals(), {
       jobs: 0,
-      ready: 0,
+      matches: 0,
       review: 0,
       applications: 0,
       interviewing: 0,
@@ -303,9 +304,9 @@ test("unknown quota is not reported as zero and model choices exclude unrelated 
   assert.equal(budget.dailyTarget, null);
   assert.equal(budget.searchesPerRun, null);
   assert.equal(remainingDays("2026-11-27", "Asia/Jakarta", new Date("2026-10-28T05:00:00Z")), 30);
-  assert.equal(isScoringModel("gpt-4o"), true);
-  assert.equal(isScoringModel("text-embedding-3-small"), false);
-  assert.equal(isScoringModel("gpt-4o-realtime-preview"), false);
+  assert.equal(isAssessmentModel("gpt-4o"), true);
+  assert.equal(isAssessmentModel("text-embedding-3-small"), false);
+  assert.equal(isAssessmentModel("gpt-4o-realtime-preview"), false);
 });
 
 test("country and work type affect discovery queries, provider parameters, and previews", () => {
@@ -364,15 +365,13 @@ test("save readiness follows actual changes and rejects incomplete form input", 
     searchChanged({ ...original, scheduleDays: [...original.scheduleDays].reverse() }, original),
     false,
   );
-  assert.equal(searchChanged({ ...original, threshold: 80 }, original), false);
   assert.equal(searchValid(original, false), false);
   const configured = { ...original, roles: ["Operations"] };
   assert.equal(searchValid(configured, false), true);
   assert.equal(searchValid(configured, true), false);
-  assert.equal(profileValid("", "75"), false);
-  assert.equal(profileValid("Operations experience", "75"), true);
-  assert.equal(profileValid("Operations experience", ""), false);
-  assert.equal(profileValid("Operations experience", "101"), false);
+  assert.equal(profileValid(""), false);
+  assert.equal(profileValid("Operations experience"), true);
+  assert.equal(profileValid("Operations experience".repeat(1000)), false);
 });
 
 test("existing preferences retain US remote behavior when upgraded", () => {
@@ -388,7 +387,7 @@ test("existing preferences retain US remote behavior when upgraded", () => {
     const db = new Database(path);
     try {
       db.prepare("INSERT INTO preferences(id,value) VALUES(1,?)").run(
-        JSON.stringify({ ...previous, limit: 10 }),
+        JSON.stringify({ ...previous, limit: 10, threshold: 75 }),
       );
     } finally {
       db.close();
@@ -456,4 +455,68 @@ test("resume metadata accepts only a PDF filename and bounded page count", () =>
       .success,
     false,
   );
+});
+
+test("match decisions have clear labels and never require a numeric score", () => {
+  assert.equal(assessmentLabel("match"), "Match");
+  assert.equal(assessmentLabel("not_a_match"), "Not a match");
+  assert.equal(assessmentLabel("review"), "Needs review");
+  assert.equal(assessmentLabel(null), "Not assessed");
+  assert.equal(assessmentStatus("match"), "ready");
+  assert.equal(assessmentStatus("not_a_match"), "not_a_fit");
+  assert.equal(assessmentStatus("review"), "review");
+  assert.equal(
+    assessmentSchema.safeParse({
+      verdict: "match",
+      reason: "The stated requirements are supported.",
+    }).success,
+    true,
+  );
+  assert.equal(
+    assessmentSchema.safeParse({
+      verdict: "match",
+      reason: "The stated requirements are supported.",
+      score: 90,
+    }).success,
+    false,
+  );
+  assert.equal(
+    assessmentSchema.safeParse({ verdict: "unknown", reason: "Unclear." }).success,
+    false,
+  );
+});
+
+test("schema upgrade removes numeric scores and keeps assessment and application state separate", () => {
+  const directory = mkdtempSync(join(tmpdir(), "job-hunter-assessment-upgrade-"));
+  const path = join(directory, "workspace.sqlite");
+  try {
+    const db = new Database(path);
+    db.exec(
+      "CREATE TABLE jobs (id INTEGER PRIMARY KEY,title TEXT NOT NULL,url TEXT NOT NULL UNIQUE,source TEXT NOT NULL,snippet TEXT NOT NULL,description TEXT NOT NULL,score INTEGER CHECK(score BETWEEN 0 AND 100),reason TEXT NOT NULL,status TEXT NOT NULL,notes TEXT NOT NULL DEFAULT '',createdAt TEXT NOT NULL,updatedAt TEXT NOT NULL);CREATE TABLE runs (id INTEGER PRIMARY KEY,startedAt TEXT NOT NULL,finishedAt TEXT,status TEXT NOT NULL,found INTEGER NOT NULL DEFAULT 0,added INTEGER NOT NULL DEFAULT 0,ready INTEGER NOT NULL DEFAULT 0,review INTEGER NOT NULL DEFAULT 0,message TEXT NOT NULL DEFAULT '',trigger TEXT NOT NULL);PRAGMA user_version=1;",
+    );
+    db.close();
+    const store = new Store(path);
+    assert.deepEqual(store.allJobs(), []);
+    assert.equal(store.totals().matches, 0);
+    store.close();
+    const check = new Database(path);
+    try {
+      const columns = check.prepare("PRAGMA table_info(jobs)").all() as { name: string }[];
+      assert.equal(
+        columns.some((c) => c.name === "score"),
+        false,
+      );
+      assert.equal(
+        columns.some((c) => c.name === "assessment"),
+        true,
+      );
+      assert.equal(check.pragma("user_version", { simple: true }), 2);
+    } finally {
+      check.close();
+    }
+    const reopened = new Store(path);
+    reopened.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

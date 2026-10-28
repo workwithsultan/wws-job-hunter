@@ -19,13 +19,6 @@ export function searchChanged(draft: Preferences, saved: Preferences): boolean {
 export function searchValid(draft: Preferences, pending: boolean): boolean {
   return !pending && draft.roles.length > 0 && preferencesSchema.safeParse(draft).success;
 }
-export function profileValid(profile: string, threshold: string): boolean {
-  return (
-    profile.trim().length >= 10 &&
-    profile.length <= 12000 &&
-    threshold.trim() !== "" &&
-    Number.isInteger(Number(threshold)) &&
-    Number(threshold) >= 0 &&
-    Number(threshold) <= 100
-  );
+export function profileValid(profile: string): boolean {
+  return profile.trim().length >= 10 && profile.length <= 12000;
 }

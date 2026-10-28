@@ -1,6 +1,6 @@
 # Job Hunter
 
-An application for discovering jobs across countries, reviewing AI match scores, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
+An application for discovering jobs across countries, reviewing job matches, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
 
 ## Install and run
 
@@ -14,14 +14,14 @@ Requires **Node.js 24 LTS or newer** and npm. Download and extract the source pa
 
 Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, work type, and job sites. Your first search starts only after you explicitly confirm it.
 
-API calls consume your own provider credits. An unconfigured installation makes no provider calls. Connecting keys verifies model access or account quota; these metadata requests do not run job discovery or AI scoring. No sample jobs, profiles, credentials, or application records are included.
+API calls consume your own provider credits. An unconfigured installation makes no provider calls. Connecting keys verifies model access or account quota; these metadata requests do not run job discovery or AI assessment. No sample jobs, profiles, credentials, or application records are included.
 
 ## Workspace
 
 - **Jobs:** filter opportunities, read match reasons, open original postings, and export CSV.
 - **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
 - **Search:** edit roles, exclusion keywords, country, work type, sources and schedule, and view actual execution history.
-- **Settings:** edit your profile, match threshold, and provider keys.
+- **Settings:** edit your profile and provider keys.
 
 Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Provider Connect buttons require a key; model and appearance selections save immediately only when changed.
 
@@ -31,9 +31,9 @@ Data is stored in SQLite. Google Sheets, Google service accounts, Cloudflare, Ra
 
 Discovery uses SerpApi's Google search API for postings on Greenhouse, Lever, Ashby, Workable, and Workday. Choose a supported country or **Any country**, and **Remote**, **Hybrid**, **On-site**, or **Any type**. New and upgraded installations retain the previous United States / Remote defaults. Country affects query terms and provider localization; work type affects query terms. Any country omits country terms and localization parameters. Queries use English terms. These are discovery preferences, so review each posting's actual location, work arrangement, and eligibility. Changing preferences affects future searches and keeps existing jobs. Results cover the last day. URL normalization prevents repeated imports of the same posting. Excluded title keywords are applied locally to titles only.
 
-Readable descriptions are scored against your own profile using OpenAI's Responses API and structured output. Your profile and each description are sent to OpenAI with response storage disabled. Scores are suggestions for your own job search; they do not confirm eligibility or submit an application.
+Readable descriptions are assessed against your resume using OpenAI's Responses API and structured output. Your profile and each description are sent to OpenAI with response storage disabled. Each assessment is **Match**, **Not a match**, or **Needs review**, with a concise reason. There is no numeric score or minimum threshold. Missing essential information stays Needs review. These assessments help you decide what to apply for; they do not verify eligibility or submit applications. Assessment remains separate from application status.
 
-JavaScript-only, blocked, inaccessible, or unsupported descriptions are marked **Needs review**, with no invented score. Provider discovery failures stop the run explicitly. Unprocessed jobs remain available for a later run when AI scoring fails. Application statuses and notes are not overwritten by a later score.
+JavaScript-only, blocked, inaccessible, or unsupported descriptions are marked **Needs review**, without an invented verdict. Provider discovery failures stop the run explicitly. Unprocessed jobs remain available for a later run when AI assessment fails. Application statuses and notes are not overwritten by a later assessment.
 
 Scheduled searches are off by default. Enable them only after setup. The server must remain running; missed schedules are not replayed. Stopping the server cancels active provider requests and keeps already-saved jobs. A restart marks a search left by an unexpected shutdown as interrupted. Editing search settings or credentials is blocked during an active run.
 
@@ -41,7 +41,7 @@ Scheduled searches are off by default. Enable them only after setup. The server 
 
 In Settings → Profile, choose a resume PDF up to 10 MB and 20 pages. The browser reads it locally using [Mozilla PDF.js](https://mozilla.github.io/pdf.js/). PDF files are not uploaded to the app server, sent to OpenAI, or stored. Confirm before placing extracted text into the profile draft, then review and edit it before Save profile. Existing profile text is replaced only after confirmation; Cancel leaves it unchanged. The page shows the imported filename and page count. Open **Review text** to inspect or correct the extracted content; the text editor is kept inside that dialog. Search already holds your target titles, country, and work type.
 
-The profile accepts up to 12,000 characters; longer PDFs are rejected rather than truncated. Scanned resumes require OCR first. Locked, malformed, empty, or unreadable files receive an explicit correction. Pages without readable text are identified before import. Formatting and reading order can differ, especially with columns, so review the extracted content. Leaving Settings cancels an import still being read. Saved profile text, source filename, and page count are backed up in SQLite. Profile text is sent to OpenAI only when job scoring runs.
+The profile accepts up to 12,000 characters; longer PDFs are rejected rather than truncated. Scanned resumes require OCR first. Locked, malformed, empty, or unreadable files receive an explicit correction. Pages without readable text are identified before import. Formatting and reading order can differ, especially with columns, so review the extracted content. Leaving Settings cancels an import still being read. Saved profile text, source filename, and page count are backed up in SQLite. Profile text is sent to OpenAI only when job assessment runs.
 
 ## Provider quota
 
@@ -49,7 +49,7 @@ Use **Add key** repeatedly to connect several SerpApi keys from separate account
 
 SerpApi has a monthly search allowance. The app calculates a daily planning target from each account's remaining searches and days until renewal, then adjusts search depth automatically. This is an estimate, not a provider daily limit or a hard daily spending cap. The confirmation shows estimated requests; retries can use additional credits. If a renewal date is unavailable, no daily target is invented. Unknown quota or exhausted accounts block search explicitly.
 
-The model dropdown uses the [OpenAI Models API](https://developers.openai.com/api/reference/resources/models/methods/list) and filters for text model families suitable for scoring. Account access and structured-output support can still differ by model; upstream errors are shown explicitly. No model IDs are supplied as a static fallback.
+The model dropdown uses the [OpenAI Models API](https://developers.openai.com/api/reference/resources/models/methods/list) and filters for text model families suitable for assessment. Account access and structured-output support can still differ by model; upstream errors are shown explicitly. No model IDs are supplied as a static fallback.
 
 ## Local configuration
 
@@ -67,6 +67,8 @@ This release serves only on a loopback address. Remote server installations can 
 4. Run `npm start`.
 
 Preserve both the database and its environment file. CSV export is for portability, not a full backup. The app does not delete old jobs automatically.
+
+When upgrading the local prototype, the database migrates to schema 2. Existing ready/not-a-fit/review classifications carry into the assessment field; application history and notes remain. Previous numeric scores and the minimum-threshold preference are removed.
 
 ## Development and verification
 

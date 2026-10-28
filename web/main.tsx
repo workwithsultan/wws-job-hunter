@@ -1,3 +1,4 @@
+import { assessmentLabel } from "../src/shared/assessment";
 import { StrictMode, useCallback, useEffect, useState, type FormEvent } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -150,7 +151,7 @@ function App() {
       if (
         !(await confirm({
           title: "Start a job search?",
-          description: `Estimated usage: ${budget.searchesPerRun} SerpApi searches before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} New jobs will be scored against your profile using OpenAI.`,
+          description: `Estimated usage: ${budget.searchesPerRun} SerpApi searches before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} New jobs will be matched against your resume using OpenAI.`,
           action: "Start search",
         }))
       )
@@ -367,7 +368,7 @@ function JobsPage({
       ]
     : [
         { label: "Saved jobs", value: workspace.totals.jobs, icon: BriefcaseBusiness },
-        { label: "Ready to apply", value: workspace.totals.ready, icon: Sparkles },
+        { label: "Matches", value: workspace.totals.matches, icon: Sparkles },
         { label: "Needs review", value: workspace.totals.review, icon: CircleDashed },
       ];
   const total = applications ? workspace.totals.applications : workspace.totals.jobs;
@@ -490,9 +491,7 @@ function JobsPage({
                 <thead>
                   <tr>
                     <th scope="col">Role</th>
-                    <th scope="col" className="numeric">
-                      Match
-                    </th>
+                    <th scope="col">Match</th>
                     <th scope="col" className="desktop-cell">
                       Source
                     </th>
@@ -520,15 +519,9 @@ function JobsPage({
                         </Link>
                         <span className="mobile-source">{sources[job.source]}</span>
                       </td>
-                      <td className="numeric">
-                        <span
-                          className={
-                            job.score !== null && job.score >= workspace.preferences.threshold
-                              ? "score good"
-                              : "score"
-                          }
-                        >
-                          {job.score === null ? "—" : job.score + " / 100"}
+                      <td>
+                        <span className={"badge assessment-" + (job.assessment ?? "pending")}>
+                          {assessmentLabel(job.assessment)}
                         </span>
                       </td>
                       <td className="desktop-cell">{sources[job.source]}</td>
@@ -680,8 +673,8 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
         <form onSubmit={(event) => void save(event)} className="drawer-body">
           <div className="detail-meta">
             <span className="badge">{sources[job.source]}</span>
-            <span className="detail-score">
-              {job.score === null ? "Not scored" : `${job.score} / 100 match score`}
+            <span className={"badge assessment-" + (job.assessment ?? "pending")}>
+              {assessmentLabel(job.assessment)}
             </span>
           </div>
           {job.reason && <p className="match-reason">{job.reason}</p>}
@@ -828,7 +821,6 @@ function SearchPage({
       ...draft,
       profile: workspace.preferences.profile,
       resume: workspace.preferences.resume,
-      threshold: workspace.preferences.threshold,
     };
     const result = preferencesSchema.safeParse(candidate);
     const fields: Record<string, string> = {};
@@ -1108,7 +1100,7 @@ function SearchPage({
                 <div className="run-counts">
                   <span>{run.found} found</span>
                   <span>{run.added} added</span>
-                  <span>{run.ready} ready</span>
+                  <span>{run.matches} matches</span>
                   <span>{run.review} need review</span>
                 </div>
               </article>
@@ -1138,14 +1130,10 @@ function SettingsPage({
   const [resume, setResume] = useState<ResumeMetadata | null>(workspace.preferences.resume);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewText, setReviewText] = useState("");
-  const [threshold, setThreshold] = useState(String(workspace.preferences.threshold));
   const [baseline, setBaseline] = useState(workspace.preferences);
   const dirty =
-    profile !== baseline.profile ||
-    threshold !== String(baseline.threshold) ||
-    JSON.stringify(resume) !== JSON.stringify(baseline.resume);
-  const valid = profileValid(profile, threshold);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+    profile !== baseline.profile || JSON.stringify(resume) !== JSON.stringify(baseline.resume);
+  const valid = profileValid(profile);
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const [readingResume, setReadingResume] = useState(false);
@@ -1157,26 +1145,14 @@ function SettingsPage({
       setBaseline(workspace.preferences);
       setProfile(workspace.preferences.profile);
       setResume(workspace.preferences.resume);
-      setThreshold(String(workspace.preferences.threshold));
     }
   }, [workspace.preferences, dirty]);
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || !dirty) return;
-    const fields: Record<string, string> = {};
-    if (profile.trim().length < 10) fields.profile = "Upload a readable resume PDF before saving.";
-    if (
-      !threshold ||
-      !Number.isInteger(Number(threshold)) ||
-      Number(threshold) < 0 ||
-      Number(threshold) > 100
-    )
-      fields.threshold = "Enter a whole number from 0 to 100.";
-    if (Object.keys(fields).length) {
-      setErrors(fields);
-      document
-        .getElementById(fields.profile ? "settings-resume" : "settings-" + Object.keys(fields)[0])
-        ?.focus();
+    if (!valid) {
+      setFailure("Upload a readable resume PDF before saving.");
+      document.getElementById("settings-resume")?.focus();
       return;
     }
     setBusy(true);
@@ -1186,12 +1162,9 @@ function SettingsPage({
         ...workspace.preferences,
         profile,
         resume,
-        threshold: Number(threshold),
       });
       await reload();
-      setThreshold(String(Number(threshold)));
-      setBaseline({ ...workspace.preferences, profile, resume, threshold: Number(threshold) });
-      setErrors({});
+      setBaseline({ ...workspace.preferences, profile, resume });
       setResumeVersion((value) => value + 1);
       setSaved(true);
     } catch (error) {
@@ -1217,7 +1190,6 @@ function SettingsPage({
               setProfile(value.text);
               setResume({ name: value.name, pages: value.pages });
               setSaved(false);
-              setErrors((v) => ({ ...v, profile: "" }));
             }}
           />
           {profile && (
@@ -1245,39 +1217,6 @@ function SettingsPage({
               </button>
             </div>
           )}
-          <div className="short-field">
-            <Field
-              id="settings-threshold"
-              label="Minimum score (required)"
-              error={errors.threshold}
-            >
-              <input
-                type="number"
-                inputMode="numeric"
-                min="0"
-                max="100"
-                step="1"
-                value={threshold}
-                onBlur={() =>
-                  setErrors((v) => ({
-                    ...v,
-                    threshold:
-                      !threshold.trim() ||
-                      !Number.isInteger(Number(threshold)) ||
-                      Number(threshold) < 0 ||
-                      Number(threshold) > 100
-                        ? "Enter a whole number from 0 to 100."
-                        : "",
-                  }))
-                }
-                onChange={(event) => {
-                  setThreshold(event.target.value);
-                  setSaved(false);
-                  setErrors((v) => ({ ...v, threshold: "" }));
-                }}
-              />
-            </Field>
-          </div>
           <div className="form-actions">
             <button className="primary" disabled={!dirty || !valid || busy}>
               {busy ? "Saving…" : "Save profile"}
@@ -1289,9 +1228,7 @@ function SettingsPage({
                   setResumeVersion((value) => value + 1);
                   setProfile(workspace.preferences.profile);
                   setResume(workspace.preferences.resume);
-                  setThreshold(String(workspace.preferences.threshold));
                   setBaseline(workspace.preferences);
-                  setErrors({});
                 }}
               >
                 Cancel

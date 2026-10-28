@@ -15,7 +15,7 @@ const accountSchema = z.object({
   account_rate_limit_per_hour: z.number().int().nonnegative().optional(),
   this_hour_searches: z.number().int().nonnegative().optional(),
 });
-export function isScoringModel(id: string): boolean {
+export function isAssessmentModel(id: string): boolean {
   return (
     /^(gpt-(4o|4\.1|[5-9])|o[134])([.-]|$)/.test(id) &&
     !/(audio|realtime|transcrib|tts|image|embedding|search|codex|chat-latest|deep-research|computer-use)/.test(
@@ -38,9 +38,9 @@ export class Providers {
       const client = new OpenAI({ apiKey: key, timeout: 15000, maxRetries: 0 });
       const response = await client.models.list();
       const models = [
-        ...new Set(response.data.map((model) => model.id).filter(isScoringModel)),
+        ...new Set(response.data.map((model) => model.id).filter(isAssessmentModel)),
       ].sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-      if (!models.length) throw new Error("No scoring models are available.");
+      if (!models.length) throw new Error("No assessment models are available.");
       this.catalogs.set(keyId(key), { at: Date.now(), models });
       return models;
     } catch {

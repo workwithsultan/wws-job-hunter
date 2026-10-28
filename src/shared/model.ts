@@ -1,3 +1,4 @@
+import type { Assessment } from "./assessment.js";
 import { z } from "zod";
 import { resumeMetadataSchema } from "./resume.js";
 import { countrySchema, workTypeSchema, defaultSearchScope } from "./search-scope.js";
@@ -72,7 +73,6 @@ export const preferencesSchema = z
       )
       .min(1)
       .max(5),
-    threshold: z.number().int().min(0).max(100),
     scheduleEnabled: z.boolean(),
     scheduleTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     timezone: z.string().refine((value) => {
@@ -98,7 +98,6 @@ export const defaultPreferences: Preferences = {
   roles: [],
   exclusions: [],
   sources: Object.keys(sources) as Source[],
-  threshold: 75,
   scheduleEnabled: false,
   scheduleTime: "09:00",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -111,7 +110,7 @@ export interface Job {
   source: Source;
   snippet: string;
   description: string;
-  score: number | null;
+  assessment: Assessment | null;
   reason: string;
   status: JobStatus;
   notes: string;
@@ -125,7 +124,7 @@ export interface SearchRun {
   status: "running" | "completed" | "failed" | "interrupted";
   found: number;
   added: number;
-  ready: number;
+  matches: number;
   review: number;
   message: string;
   trigger: "manual" | "schedule";
@@ -163,7 +162,7 @@ export interface Workspace {
   nextRun: string | null;
   totals: {
     jobs: number;
-    ready: number;
+    matches: number;
     review: number;
     applications: number;
     interviewing: number;
