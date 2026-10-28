@@ -12,13 +12,13 @@ Requires **Node.js 24 LTS or newer** and npm. Download and extract the source pa
 4. Start it: `npm start`
 5. Open **http://127.0.0.1:8790**.
 
-Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, work type, and job sites. Your first search starts only after you explicitly confirm it.
+Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, work type, and job sites. Choose **Search jobs** to start. If setup is incomplete, a checklist dialog links directly to each required field. A configured search starts only after you explicitly confirm its estimated usage.
 
 API calls consume your own provider credits. An unconfigured installation makes no provider calls. Connecting keys verifies model access or account quota; these metadata requests do not run job discovery or AI assessment. No sample jobs, profiles, credentials, or application records are included.
 
 ## Workspace
 
-- **Jobs:** filter opportunities, read match reasons, open original postings, and export CSV.
+- **Jobs:** filter opportunities, read match reasons, open original postings, export CSV, and check SerpApi quota.
 - **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
 - **Search:** edit roles, exclusion keywords, country, work type, sources and schedule, and view actual execution history.
 - **Settings:** edit your profile and provider keys.
@@ -46,6 +46,8 @@ In Settings → Profile, choose a resume PDF up to 10 MB and 20 pages. The brows
 The profile accepts up to 12,000 characters; longer PDFs are rejected rather than truncated. Scanned resumes require OCR first. Locked, malformed, empty, or unreadable files receive an explicit correction. Pages without readable text are identified before import. Formatting and reading order can differ, especially with columns, so review the extracted content. Leaving Settings cancels an import still being read. Saved profile text, source filename, and page count are backed up in SQLite. Profile text is sent to OpenAI only when job assessment runs.
 
 ## Provider quota
+
+The Jobs page shows verified remaining SerpApi requests, estimated job searches at the current settings before retries, and each account’s individual reset date and remaining balance. A job search can consume multiple requests; the estimate is not a guaranteed number of runs. Refresh checks provider metadata without running job discovery. Balances update after an active run finishes. If no key is connected or quota cannot be verified, the page states that explicitly without inventing a balance or reset date.
 
 Use **Add key** repeatedly to connect several SerpApi keys from separate accounts, including three accounts as in the original system. The input remains visible after each addition. Keys for the same account are rejected to avoid counting the same balance twice. Account balances and reset dates come from the [SerpApi Account API](https://serpapi.com/account-api), which does not consume search credits. Refresh reloads them; each run verifies them again.
 

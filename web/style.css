@@ -472,7 +472,7 @@ main {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 4rem 1.5rem;
+  padding: 2rem 1.5rem;
   gap: 1rem;
 }
 .empty-state p {
@@ -1120,7 +1120,7 @@ details summary {
     padding: 1rem;
   }
   .empty-state {
-    padding: 2.5rem 1rem;
+    padding: 2rem 1rem;
   }
   .empty-state h3 {
     font-size: 1.25rem;
@@ -1268,7 +1268,7 @@ details summary {
   margin-block-end: 1.5rem;
 }
 .page-content {
-  gap: 1.5rem;
+  gap: 1rem;
 }
 .stats {
   padding-block-end: 1.5rem;
@@ -1289,8 +1289,8 @@ details summary {
 .search-section {
   display: grid;
   gap: 1rem;
-  padding-block-end: 1.5rem;
-  margin-block-end: 1.5rem;
+  padding-block-end: 1rem;
+  margin-block-end: 1rem;
   border-bottom: 1px solid var(--border);
 }
 .section-heading {
@@ -1311,7 +1311,7 @@ details summary {
   align-content: start;
   flex-wrap: wrap;
   gap: 0.5rem;
-  min-height: 6rem;
+  min-height: 4rem;
   max-height: 16rem;
   overflow: auto;
   padding: 0.75rem;
@@ -1417,7 +1417,7 @@ details summary {
 }
 .connections-section {
   display: grid;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 .provider-section {
   display: grid;
@@ -1702,4 +1702,158 @@ h2 {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+
+main[data-focused="true"] {
+  width: 100%;
+  max-width: 49rem;
+}
+.jobs-layout,
+.applications-layout {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.jobs-layout .stats {
+  padding-block-end: 1rem;
+}
+.job-quota {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.quota-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.quota-heading h2 {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.job-quota p,
+.quota-resets,
+.quota-checked {
+  color: var(--muted);
+  margin: 0;
+}
+.job-quota .alert {
+  margin: 0;
+}
+.quota-balance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.quota-balance strong {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+}
+.quota-resets {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.quota-resets li {
+  display: grid;
+  gap: 0.25rem;
+  padding-block-start: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.quota-resets li > span:first-child {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  color: var(--foreground);
+}
+.quota-account-balance {
+  font-variant-numeric: tabular-nums;
+}
+.quota-checked {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.quota-settings {
+  justify-self: start;
+  font-weight: 500;
+}
+.setup-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+.setup-list li {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding-block: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.setup-list a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2rem;
+}
+.setup-list svg {
+  width: 1rem;
+  height: 1rem;
+}
+.setup-done {
+  color: var(--success);
+}
+.setup-blocked {
+  color: var(--muted);
+}
+@media (min-width: 1280px) {
+  .jobs-layout {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    grid-template-areas: "stats quota" "results quota";
+    align-items: start;
+    column-gap: 1.5rem;
+  }
+  .jobs-layout .stats {
+    grid-area: stats;
+    padding-block-end: 1rem;
+  }
+  .jobs-layout .collection {
+    grid-area: results;
+  }
+  .jobs-layout .job-quota {
+    grid-area: quota;
+  }
+}
+@media (max-width: 639px) {
+  .setup-list li {
+    grid-template-columns: 1rem minmax(0, 1fr);
+  }
+  .setup-list li > a,
+  .setup-list li > .setup-done,
+  .setup-list li > .setup-blocked {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+@media (pointer: coarse) {
+  .setup-list a {
+    min-height: 2.75rem;
+  }
 }

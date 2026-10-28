@@ -27,6 +27,7 @@ export function Modal({
   children,
   drawer = false,
   busy = false,
+  returnFocus,
 }: {
   open: boolean;
   onClose: () => void;
@@ -35,6 +36,7 @@ export function Modal({
   children: ReactNode;
   drawer?: boolean;
   busy?: boolean;
+  returnFocus?: () => void;
 }) {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const descriptionId = useId();
@@ -61,6 +63,12 @@ export function Modal({
           }}
           onInteractOutside={(event) => {
             if (busy) event.preventDefault();
+          }}
+          onCloseAutoFocus={(event) => {
+            if (returnFocus) {
+              event.preventDefault();
+              returnFocus();
+            }
           }}
           onOpenAutoFocus={(event) => {
             event.preventDefault();

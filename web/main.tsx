@@ -67,6 +67,7 @@ import {
   useConfirm,
   useDraftWarning,
 } from "./ui";
+import { JobQuota } from "./job-quota";
 import "./style.css";
 
 const storedTheme = localStorage.getItem("jobHunterAppearance") ?? "system";
@@ -96,6 +97,9 @@ function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [theme, setTheme] = useState(storedTheme);
   const [starting, setStarting] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const searchTrigger = useRef<HTMLButtonElement>(null);
+  const setupFocusTarget = useRef<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const refreshRequest = useRef(0);
   useActivity(refreshing, "busy");
@@ -152,13 +156,9 @@ function App() {
   };
   const start = async () => {
     if (!workspace || starting || workspace.running || interaction.busy) return;
-    const missing = missingSetup(workspace);
-    if (missing.profile || missing.providers) {
-      navigate("/settings");
-      return;
-    }
-    if (missing.roles) {
-      navigate("/search");
+    if (Object.values(missingSetup(workspace)).some(Boolean)) {
+      setupFocusTarget.current = null;
+      setSetupOpen(true);
       return;
     }
     if (interaction.dirty) return;
@@ -209,6 +209,13 @@ function App() {
       ))}
     </nav>
   );
+  useEffect(() => {
+    if (!location.hash) return;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(location.hash.slice(1))?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [location.pathname, location.hash]);
   const current = nav.find((item) => item.path === location.pathname);
   const incomplete = workspace ? Object.values(missingSetup(workspace)).some(Boolean) : true;
   return (
@@ -260,7 +267,11 @@ function App() {
               </span>
             )}
           </header>
-          <main id="main" tabIndex={-1}>
+          <main
+            id="main"
+            tabIndex={-1}
+            data-focused={location.pathname === "/search" || location.pathname === "/settings"}
+          >
             <div className="page-heading">
               <div>
                 <h1>
@@ -271,11 +282,15 @@ function App() {
               {workspace && (location.pathname === "/jobs" || location.pathname === "/search") && (
                 <button
                   className="primary"
+                  ref={searchTrigger}
                   disabled={
                     workspace.running ||
                     starting ||
                     interaction.busy ||
                     (!incomplete && interaction.dirty)
+                  }
+                  aria-describedby={
+                    !incomplete && interaction.dirty ? "search-draft-reason" : undefined
                   }
                   onClick={() => void start()}
                 >
@@ -283,19 +298,16 @@ function App() {
                   <PendingLabel
                     pending={starting}
                     busy="Preparing search…"
-                    idle={
-                      workspace.running
-                        ? "Searching…"
-                        : incomplete
-                          ? "Complete setup"
-                          : interaction.dirty
-                            ? "Save changes first"
-                            : "Search jobs"
-                    }
+                    idle={workspace.running ? "Searching…" : "Search jobs"}
                   />
                 </button>
               )}
             </div>
+            {!incomplete && interaction.dirty && (
+              <span id="search-draft-reason" className="sr-only">
+                Save or cancel your changes before starting a search.
+              </span>
+            )}
             {failure && (
               <Alert onRetry={refresh} retrying={refreshing}>
                 {failure}
@@ -360,6 +372,90 @@ function App() {
           />
         </div>
       </Modal>
+      {workspace && (
+        <Modal
+          open={setupOpen}
+          onClose={() => setSetupOpen(false)}
+          returnFocus={() => {
+            requestAnimationFrame(() => {
+              if (setupFocusTarget.current)
+                document.getElementById(setupFocusTarget.current)?.focus();
+              else searchTrigger.current?.focus();
+            });
+          }}
+          title="Finish setup to search"
+          description="Complete these steps before starting your first job search."
+        >
+          <ul className="setup-list">
+            {[
+              {
+                label: "Resume",
+                done: !missingSetup(workspace).profile,
+                action: "Add resume",
+                target: "/settings#settings-resume",
+              },
+              {
+                label: "OpenAI key",
+                done: workspace.connections.openai,
+                action: "Connect OpenAI",
+                target: "/settings#openai-key",
+              },
+              {
+                label: "AI model",
+                done: Boolean(workspace.connections.model),
+                blocked: !workspace.connections.openai,
+                action: "Choose model",
+                target: "/settings#openai-model",
+              },
+              {
+                label: "SerpApi key",
+                done: workspace.connections.serpapi,
+                action: "Connect SerpApi",
+                target: "/settings#serpapi-key",
+              },
+              {
+                label: "Job titles",
+                done: !missingSetup(workspace).roles,
+                action: "Set job titles",
+                target: "/search#search-roles",
+              },
+            ].map((item) => (
+              <li key={item.label}>
+                {item.done ? (
+                  <CheckCircle2 aria-hidden="true" className="setup-done" />
+                ) : (
+                  <CircleDashed aria-hidden="true" />
+                )}
+                <span>
+                  {item.label}
+                  <span className="sr-only">{item.done ? ": Complete" : ": Required"}</span>
+                </span>
+                {item.done ? (
+                  <span className="setup-done">Ready</span>
+                ) : item.blocked ? (
+                  <span className="setup-blocked">Connect key first</span>
+                ) : (
+                  <Link
+                    onClick={() => {
+                      setupFocusTarget.current = item.target.split("#")[1] ?? null;
+                      setSetupOpen(false);
+                    }}
+                    to={item.target}
+                  >
+                    {item.action}
+                    <ArrowUpRight aria-hidden="true" />
+                  </Link>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="dialog-actions">
+            <button type="button" onClick={() => setSetupOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
       {workspace && <JobDetail reload={reload} />}
     </>
   );
@@ -458,7 +554,7 @@ function JobsPage({
         : "Review search preferences";
 
   return (
-    <>
+    <div className={applications ? "applications-layout" : "jobs-layout"}>
       <div className="stats">
         {stats.map(({ label, value, icon: Icon }) => (
           <div className="stat" key={label}>
@@ -470,6 +566,7 @@ function JobsPage({
           </div>
         ))}
       </div>
+      {!applications && <JobQuota workspace={workspace} active={active} />}
       <div className="collection">
         <div className="collection-heading">
           <h2>{applications ? "Your applications" : "Your opportunities"}</h2>
@@ -623,7 +720,7 @@ function JobsPage({
           </>
         )}
       </div>
-    </>
+    </div>
   );
 }
 function JobDetail({ reload }: { reload: () => Promise<void> }) {
