@@ -22,11 +22,18 @@ export function SearchLogs({
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
+    if (!active || status !== "running") return;
+    const next = new URLSearchParams(params);
+    next.delete("status");
+    next.delete("page");
+    setParams(next, { replace: true });
+  }, [active, status, params, setParams]);
+  useEffect(() => {
     setData(null);
     setFailure("");
   }, [page, status]);
   useEffect(() => {
-    if (!active) return;
+    if (!active || status === "running") return;
     let disposed = false;
     setLoading(true);
     const query = new URLSearchParams({ page });
@@ -80,7 +87,9 @@ export function SearchLogs({
           onChange={filter}
           options={[
             { value: "", label: "All statuses" },
-            ...Object.entries(runStatusLabels).map(([value, label]) => ({ value, label })),
+            ...Object.entries(runStatusLabels)
+              .filter(([value]) => value !== "running")
+              .map(([value, label]) => ({ value, label })),
           ]}
         />
         <span>Times in {timezone.replaceAll("_", " ")}</span>
