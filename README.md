@@ -12,17 +12,17 @@ Requires **Node.js 24 LTS or newer** and npm. Download and extract the source pa
 4. Start it: `npm start`
 5. Open **http://127.0.0.1:8790**.
 
-Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and add your profile. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, and work type. Choose **Search jobs** to start. If setup is incomplete, a checklist dialog links directly to each required field. A configured search starts only after you explicitly confirm its estimated usage.
+Open **Settings** to connect your required OpenAI API key, choose an available text model from the account dropdown, connect at least one required SerpApi key, and upload your resume PDF. The model dropdown stays disabled until an OpenAI key is connected. Open **Search** to choose target roles, country, and work type. Choose **Search jobs** to start. If setup is incomplete, a checklist dialog links directly to each required field. A configured search starts only after you explicitly confirm its estimated usage.
 
 API calls consume your own provider credits. An unconfigured installation makes no provider calls. Connecting keys verifies model access or account quota; these metadata requests do not run job discovery or AI assessment. No sample jobs, profiles, credentials, or application records are included.
 
 ## Workspace
 
 - **Jobs:** filter opportunities, read match reasons, open original postings, export CSV, and check SerpApi quota.
-- **Applications:** follow applied, interviewing, offer, accepted, rejected, and withdrawn statuses.
+- **Applications:** follow Applied, Interviewed, Offered, Accepted, Rejected, and Withdrawn stages.
 - **Search:** edit roles, exclusion keywords, country and work type.
 - **Search logs:** review search executions in a table with status, time, duration, result counts, and full progress or error messages.
-- **Settings:** edit your profile and provider keys.
+- **Settings:** upload, preview, or replace your resume PDF and manage provider keys.
 
 Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Saving forms, changing models, adding keywords or keys, and deleting saved items require confirmation. Cancel and Escape preserve the current draft without saving it. Searches wait until pending edits and operations finish. Resume and search settings save separately so one form cannot overwrite the other. Provider Connect buttons require valid input; appearance changes apply immediately.
 
