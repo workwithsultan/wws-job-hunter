@@ -33,6 +33,7 @@ import { searchLocation } from "../src/shared/search-scope.js";
 import { searchChanged, searchValid, profileValid, keywordEntry } from "../web/form-state.js";
 import { countries } from "../src/shared/countries.js";
 import {
+  matchesTitle,
   buildSearchQueryBody,
   buildSearchQueryPreview,
   buildFirstPageSearchQueries,
@@ -1147,4 +1148,31 @@ test("upgrading a version-four database preserves original opportunity age inste
     upgraded?.close();
     item.cleanup();
   }
+});
+
+test("multi-word title keywords do not require a phrase, order or adjacency", () => {
+  const scope = { country: "any", workType: "any" } as const;
+  assert.equal(buildSearchQueryBody(["Automation Specialist"], scope), "(Automation Specialist)");
+  assert.equal(
+    buildSearchQueryBody(["Automation Specialist", "Operations Manager"], scope),
+    "((Automation Specialist)\nOR (Operations Manager))",
+  );
+  assert.deepEqual(
+    buildFirstPageSearchQueries(
+      ["Automation Specialist", "Specialist Automation", "Automation"],
+      30,
+      scope,
+    ),
+    ["(Automation)"],
+  );
+  assert.equal(matchesTitle("Specialist in Workflow Automation", "Automation Specialist"), true);
+  assert.equal(matchesTitle("AUTOMATION & INTEGRATIONS SPECIALIST", "Automation Specialist"), true);
+  assert.equal(matchesTitle("Automation Engineer", "Automation Specialist"), false);
+  assert.equal(matchesTitle("Senior Manager of Sales", "Sales Manager"), true);
+  assert.equal(matchesTitle("Operations Manager", "Sales Manager"), false);
+  assert.equal(matchesTitle("Operations Manager", ""), false);
+  assert.equal(
+    buildSearchQueryBody(["Automation OR site:example.com"], scope),
+    '(Automation "OR" "site:example.com")',
+  );
 });

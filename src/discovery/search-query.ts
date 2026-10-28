@@ -8,7 +8,7 @@ function locationClauses(scope: SearchScope): string[] {
     clauses.push('("on-site" OR onsite OR "on site" OR "in-office")');
   if (scope.country === "us") clauses.push('("United States" OR USA OR "U.S" OR "US")');
   else if (scope.country === "uk") clauses.push('("United Kingdom" OR UK OR Britain)');
-  else if (scope.country !== "any") clauses.push(formatSearchTerm(countryName(scope.country)));
+  else if (scope.country !== "any") clauses.push(JSON.stringify(countryName(scope.country)));
   return clauses;
 }
 
@@ -21,7 +21,15 @@ function formatSearchTerm(term: string): string {
     throw new Error("Search terms must not contain quotes or line breaks.");
   }
 
-  return /[^A-Za-z0-9]/.test(normalized) ? `"${normalized}"` : normalized;
+  // Quote only individual tokens that could otherwise become search operators.
+  return normalized
+    .split(/\s+/)
+    .map((word) =>
+      /^[A-Za-z0-9]+$/.test(word) && !["OR", "AND", "NOT"].includes(word)
+        ? word
+        : JSON.stringify(word),
+    )
+    .join(" ");
 }
 
 function compactSearchTerms(discoveryTitleTerms: readonly string[]): string[] {
@@ -30,21 +38,27 @@ function compactSearchTerms(discoveryTitleTerms: readonly string[]): string[] {
   }
 
   const formattedTerms = discoveryTitleTerms.map(formatSearchTerm);
-  const normalizedTerms = discoveryTitleTerms.map((term) => term.trim().toLowerCase());
-  // A broad term already covers phrases containing that whole term in an OR query.
-  return formattedTerms.filter((_, index) => {
-    const term = normalizedTerms[index]!;
-    return !normalizedTerms.some((other, otherIndex) => {
-      if (otherIndex === index) return false;
-      if (term === other) return otherIndex < index;
-      return ` ${term} `.includes(` ${other} `);
-    });
-  });
+  const words = discoveryTitleTerms.map((term) => new Set(term.toLowerCase().trim().split(/\s+/)));
+  // A broader word group covers narrower groups regardless of order or adjacency.
+  return formattedTerms.filter(
+    (_, index) =>
+      !words.some((other, otherIndex) => {
+        if (otherIndex === index) return false;
+        const current = words[index]!;
+        return (
+          [...other].every((word) => current.has(word)) &&
+          (other.size < current.size || otherIndex < index)
+        );
+      }),
+  );
 }
 
 function queryForTerms(formattedTerms: readonly string[], scope: SearchScope): string {
   // Rejected terms apply only to titles after discovery, never to page descriptions.
-  return [`(${formattedTerms.join("\nOR ")})`, ...locationClauses(scope)].join("\n");
+  const groups = formattedTerms.map((term) =>
+    formattedTerms.length > 1 && /\s/.test(term) ? `(${term})` : term,
+  );
+  return [`(${groups.join("\nOR ")})`, ...locationClauses(scope)].join("\n");
 }
 
 export function buildSearchQueryBody(
@@ -101,4 +115,10 @@ export function buildSearchQueryPreview(
     ...queries.map((query, index) => `Query ${index + 1}/${queries.length}:\n${query}`),
   );
   return sections.join("\n\n");
+}
+
+export function matchesTitle(title: string, keyword: string): boolean {
+  const words = keyword.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  const normalizedTitle = title.toLowerCase();
+  return words.length > 0 && words.every((word) => normalizedTitle.includes(word));
 }

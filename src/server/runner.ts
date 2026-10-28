@@ -4,6 +4,7 @@ import { Providers } from "./providers.js";
 import { searchBudget } from "../shared/budget.js";
 import { assessmentStatus } from "../shared/assessment.js";
 import { discoverJobs } from "../discovery/serpapi.js";
+import { matchesTitle } from "../discovery/search-query.js";
 import { normalizeJobUrl } from "../discovery/url.js";
 import { sourceDomains, type Preferences } from "../shared/model.js";
 import { Configuration } from "./config.js";
@@ -91,12 +92,8 @@ export class Runner {
           (host) => new URL(url).hostname === host || new URL(url).hostname.endsWith("." + host),
         );
         if (!source) throw new Error("The job source is not supported.");
-        const excluded = preferences.exclusions.some((term) =>
-          candidate.title.toLowerCase().includes(term.toLowerCase()),
-        );
-        const matched = preferences.roles.some((term) =>
-          candidate.title.toLowerCase().includes(term.toLowerCase()),
-        );
+        const excluded = preferences.exclusions.some((term) => matchesTitle(candidate.title, term));
+        const matched = preferences.roles.some((term) => matchesTitle(candidate.title, term));
         if (!matched) continue;
         this.store.insert({
           title: candidate.title,
