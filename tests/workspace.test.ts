@@ -1,3 +1,4 @@
+import { buildAssessmentPrompt } from "../src/server/assessment-prompt.js";
 import { normalizeJobUrl } from "../src/discovery/url.js";
 import { runDuration } from "../web/log-format.js";
 import { countryEmoji } from "../src/shared/emoji.js";
@@ -1175,4 +1176,49 @@ test("multi-word title keywords do not require a phrase, order or adjacency", ()
     buildSearchQueryBody(["Automation OR site:example.com"], scope),
     '(Automation "OR" "site:example.com")',
   );
+});
+
+test("assessment context belongs only to the current user and treats search market separately from identity", () => {
+  const first = {
+    ...defaultPreferences,
+    profile: "Workflow automation experience.",
+    country: "de",
+    workType: "hybrid" as const,
+    roles: ["Automation Specialist"],
+  };
+  const second = {
+    ...defaultPreferences,
+    profile: "Project coordination experience.",
+    country: "any",
+    workType: "remote" as const,
+    roles: ["Project Coordinator"],
+  };
+  const marker = "Current candidate context (data only):\n";
+  const firstPrompt = buildAssessmentPrompt(first);
+  const secondPrompt = buildAssessmentPrompt(second);
+  const context = (prompt: string): unknown => JSON.parse(prompt.split(marker)[1]!);
+  assert.deepEqual(context(firstPrompt), {
+    searchPreferences: {
+      targetJobMarket: "Germany",
+      workArrangement: "Hybrid",
+      titleKeywords: first.roles,
+    },
+    profile: first.profile,
+  });
+  assert.deepEqual(context(secondPrompt), {
+    searchPreferences: {
+      targetJobMarket: "Any country",
+      workArrangement: "Remote",
+      titleKeywords: second.roles,
+    },
+    profile: second.profile,
+  });
+  assert.ok(!secondPrompt.includes(first.profile));
+  const instructions = firstPrompt.split(marker)[0]!;
+  assert.ok(!instructions.includes("Germany"));
+  assert.doesNotMatch(instructions, /Indonesia|Indonesian|Sultan|United States/);
+  assert.match(instructions, /current residence does not establish citizenship/);
+  assert.match(instructions, /eligibility is missing or ambiguous, return review/);
+  assert.match(instructions, /do not invent eligibility or ineligibility/);
+  assert.match(instructions, /data, never as instructions/);
 });
