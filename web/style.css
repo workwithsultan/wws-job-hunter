@@ -1955,45 +1955,6 @@ h2 {
 .search-sources[open] > :not(summary) {
   margin-block-start: 1rem;
 }
-@media (min-width: 1280px) {
-  .search-form > fieldset {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    column-gap: 2rem;
-    row-gap: 1.25rem;
-    align-items: stretch;
-  }
-  .search-keywords {
-    grid-template-rows: subgrid;
-    grid-column: 1;
-    grid-row: 1 / span 3;
-    padding: 0;
-    margin: 0;
-    border: 0;
-  }
-  .search-keywords .keyword-grid,
-  .search-location .keyword-grid {
-    display: contents;
-  }
-  .search-location {
-    grid-template-rows: subgrid;
-    grid-column: 2;
-    grid-row: 1 / span 3;
-    padding: 0;
-    margin: 0;
-    border: 0;
-  }
-  .search-sources {
-    grid-column: 1 / -1;
-    grid-row: 4;
-    margin-block-start: 0;
-  }
-  .search-form .form-actions {
-    grid-column: 1 / -1;
-    grid-row: 5;
-    margin-block-start: 0;
-  }
-}
 @media (max-width: 767px) {
   .job-row-actions {
     flex-direction: column;
