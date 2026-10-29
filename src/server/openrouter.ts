@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assessmentSchema, assessmentResponseInstructions } from "../shared/assessment.js";
+import { assessmentSchema, withAssessmentOutput } from "../shared/assessment.js";
 
 const modelSchema = z.object({
   id: z.string().min(1).max(150),
@@ -140,8 +140,7 @@ export class OpenRouterClient {
         messages: [
           {
             role: "system",
-            content:
-              prompt + "\n\nRequired output (system-managed):\n" + assessmentResponseInstructions,
+            content: withAssessmentOutput(prompt),
           },
           { role: "user", content: JSON.stringify(job) },
         ],

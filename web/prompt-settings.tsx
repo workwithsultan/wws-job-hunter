@@ -1,3 +1,5 @@
+import { buildAssessmentPrompt } from "../src/shared/assessment-context";
+import { withAssessmentOutput } from "../src/shared/assessment";
 import { useEffect, useState, type FormEvent } from "react";
 import type { Workspace } from "../src/shared/model";
 import { defaultAssessmentPrompt, assessmentPromptSchema } from "../src/shared/assessment-prompt";
@@ -136,6 +138,15 @@ export function PromptSettings({
           Reset to default
         </button>
       </div>
+      <section aria-labelledby="full-prompt-heading">
+        <h2 id="full-prompt-heading">Full saved prompt</h2>
+        <pre className="prompt-content" aria-label="Full system prompt">
+          {withAssessmentOutput(buildAssessmentPrompt(workspace.preferences))}
+        </pre>
+        <p className="muted">
+          Each job is sent separately with its title, URL and full description.
+        </p>
+      </section>
     </form>
   );
 }

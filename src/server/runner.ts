@@ -1,4 +1,4 @@
-import { buildAssessmentPrompt } from "./assessment-prompt.js";
+import { buildAssessmentPrompt } from "../shared/assessment-context.js";
 import { OpenRouterClient, OpenRouterError } from "./openrouter.js";
 import { Providers } from "./providers.js";
 import { searchBudget } from "../shared/budget.js";

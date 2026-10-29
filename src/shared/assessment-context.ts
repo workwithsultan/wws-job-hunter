@@ -1,5 +1,5 @@
-import type { Preferences } from "../shared/model.js";
-import { countryName, workTypes } from "../shared/search-scope.js";
+import type { Preferences } from "./model.js";
+import { countryName, workTypes } from "./search-scope.js";
 
 export function buildAssessmentPrompt(preferences: Preferences): string {
   return (

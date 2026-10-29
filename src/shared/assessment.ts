@@ -1,6 +1,9 @@
 import { z } from "zod";
 export const assessmentResponseInstructions =
   'Return raw JSON: {"verdict":"match|not_a_match","score":0–100,"reason":"brief factual reason"}. Return match only for a confirmed fit with a score above 0; otherwise return not_a_match with score 0. Keep reason within 12 words and 80 characters.';
+export function withAssessmentOutput(prompt: string): string {
+  return prompt + "\n\nRequired output (system-managed):\n" + assessmentResponseInstructions;
+}
 export const assessmentLabels = {
   match: "Match",
   not_a_match: "Not a match",

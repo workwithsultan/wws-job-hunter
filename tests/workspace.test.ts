@@ -4,7 +4,7 @@ import {
   previousDefaultAssessmentPrompt,
 } from "../src/shared/assessment-prompt.js";
 import { Providers } from "../src/server/providers.js";
-import { buildAssessmentPrompt } from "../src/server/assessment-prompt.js";
+import { buildAssessmentPrompt } from "../src/shared/assessment-context.js";
 import { normalizeJobUrl } from "../src/discovery/url.js";
 import { runDuration } from "../web/log-format.js";
 import { countryEmoji } from "../src/shared/emoji.js";
