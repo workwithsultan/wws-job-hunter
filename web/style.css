@@ -2156,30 +2156,6 @@ h2 {
   gap: 1.5rem;
 }
 
-.prompt-settings {
-  display: grid;
-  gap: 1rem;
-  min-width: 0;
-}
-.prompt-settings textarea {
-  width: 100%;
-  min-height: 24rem;
-  line-height: 1.65;
-  resize: vertical;
-}
-
-.prompt-content {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  margin: 0;
-  font: inherit;
-  line-height: 1.7;
-}
-.prompt-error {
-  color: var(--error);
-  margin: 0;
-}
-
 .search-form .chip-input {
   min-height: 2.75rem;
   padding: 0.25rem 0.5rem;
