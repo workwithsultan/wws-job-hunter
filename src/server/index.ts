@@ -27,7 +27,7 @@ store.recoverInterrupted();
 const runner = new Runner(store, config);
 const app = buildApp(store, config, runner, root, port);
 await app.listen({ host, port });
-console.info(`Job Hunter is ready at http://${host === "::1" ? "[::1]" : host}:${port}`);
+console.info(`WWS Job Hunter is ready at http://${host === "::1" ? "[::1]" : host}:${port}`);
 let closing = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {

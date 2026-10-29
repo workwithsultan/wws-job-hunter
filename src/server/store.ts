@@ -65,7 +65,7 @@ export class Store {
     this.db.pragma("foreign_keys = ON");
     this.db.pragma("busy_timeout = 5000");
     if (Number(this.db.pragma("user_version", { simple: true })) > 6)
-      throw new Error("This database requires a newer version of Job Hunter.");
+      throw new Error("This database requires a newer version of WWS Job Hunter.");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS resume_document (id INTEGER PRIMARY KEY CHECK(id=1), pdf BLOB NOT NULL);
       CREATE TABLE IF NOT EXISTS preferences (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);

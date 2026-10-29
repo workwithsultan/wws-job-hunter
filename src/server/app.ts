@@ -56,7 +56,7 @@ export function buildApp(
   app.addHook("onRequest", async (request, reply) => {
     reply.header("Cache-Control", "no-store");
     if (!hosts.has(request.headers.host ?? ""))
-      return reply.code(403).send({ error: "Open Job Hunter using its localhost address." });
+      return reply.code(403).send({ error: "Open WWS Job Hunter using its localhost address." });
     const origin = request.headers.origin;
     if (origin && ![...hosts].some((host) => origin === `http://${host}`))
       return reply.code(403).send({ error: "Cross-site requests are not allowed." });
@@ -64,7 +64,7 @@ export function buildApp(
       !["GET", "HEAD"].includes(request.method) &&
       (!origin || !request.headers["content-type"]?.startsWith("application/json"))
     )
-      return reply.code(403).send({ error: "Use the Job Hunter interface to make changes." });
+      return reply.code(403).send({ error: "Use the WWS Job Hunter interface to make changes." });
   });
   app.setErrorHandler((error, _request, reply) => {
     if (error instanceof z.ZodError)
@@ -399,7 +399,7 @@ export function buildApp(
       );
     return reply
       .header("Content-Type", "text/csv; charset=utf-8")
-      .header("Content-Disposition", 'attachment; filename="job-hunter.csv"')
+      .header("Content-Disposition", 'attachment; filename="wws-job-hunter.csv"')
       .send(
         ["Title,URL,Source,Assessment,Score (%),Reason,Status,Notes,Added", ...records].join(
           "\r\n",

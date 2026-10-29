@@ -146,8 +146,8 @@ function App() {
     setMobileMenu(false);
     window.scrollTo(0, 0);
     document.title =
-      (nav.find((item) => item.path === location.pathname)?.label ?? "Job Hunter") +
-      " · Job Hunter";
+      (nav.find((item) => item.path === location.pathname)?.label ?? "WWS Job Hunter") +
+      " · WWS Job Hunter";
     const frame = requestAnimationFrame(() =>
       document.getElementById("main")?.focus({ preventScroll: true }),
     );
@@ -293,8 +293,8 @@ function App() {
       <div className="shell">
         <aside className="sidebar">
           <Link to="/jobs" className="brand">
-            <img src="/icon.svg" alt="" width="32" height="32" />
-            Job Hunter
+            <img src="/wws-job-hunter.svg" alt="" width="32" height="32" />
+            WWS Job Hunter
           </Link>
           {navigation}
           <div className="sidebar-bottom">{utilityControls}</div>
@@ -311,7 +311,8 @@ function App() {
                 <Menu />
               </button>
               <Link to="/jobs" className="mobile-brand">
-                Job Hunter
+                <img src="/wws-job-hunter.svg" alt="" width="24" height="24" />
+                WWS Job Hunter
               </Link>
             </div>
             {workspace?.running && (
@@ -427,14 +428,14 @@ function App() {
         }}
         returnFocus={() => searchTrigger.current?.focus()}
       />
-      <Modal open={mobileMenu} onClose={() => setMobileMenu(false)} title="Job Hunter" drawer>
+      <Modal open={mobileMenu} onClose={() => setMobileMenu(false)} title="WWS Job Hunter" drawer>
         {navigation}
         <div className="mobile-appearance">{utilityControls}</div>
       </Modal>
       <Modal
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
-        title="About Job Hunter"
+        title="About WWS Job Hunter"
         returnFocus={() => aboutTrigger.current?.focus()}
       >
         <section className="about-intro" aria-labelledby="about-personal-note">

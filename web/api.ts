@@ -16,7 +16,7 @@ export async function api<T>(url: string, method = "GET", body?: unknown): Promi
     });
   } catch {
     throw new ApiError(
-      "Job Hunter could not be reached. Make sure the app is running, then try again.",
+      "WWS Job Hunter could not be reached. Make sure the app is running, then try again.",
     );
   }
   let payload: unknown;

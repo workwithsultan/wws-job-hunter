@@ -34,11 +34,11 @@ const verify = (path) => {
   if (lstatSync(path).isDirectory()) for (const file of readdirSync(path)) verify(join(path, file));
 };
 const version = JSON.parse(readFileSync("package.json", "utf8")).version;
-const staging = mkdtempSync(join(tmpdir(), "job-hunter-package-"));
-const target = join(staging, "job-hunter");
+const staging = mkdtempSync(join(tmpdir(), "wws-job-hunter-package-"));
+const target = join(staging, "wws-job-hunter");
 mkdirSync(target);
 mkdirSync("release", { recursive: true });
-const output = resolve("release", `job-hunter-self-hosted-${version}.tar.gz`);
+const output = resolve("release", `wws-job-hunter-${version}.tar.gz`);
 try {
   for (const file of files) {
     if (!existsSync(file)) throw new Error(`Missing release source: ${file}`);
@@ -46,7 +46,7 @@ try {
     cpSync(file, join(target, file), { recursive: true });
   }
   await create({ gzip: true, file: output, cwd: staging, portable: true, noMtime: true }, [
-    "job-hunter",
+    "wws-job-hunter",
   ]);
   console.info(output);
 } finally {

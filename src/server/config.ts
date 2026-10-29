@@ -8,7 +8,8 @@ export class Configuration {
   readonly file: string;
   constructor(root: string) {
     this.file = resolve(root, ".env.local");
-    if (!existsSync(this.file)) throw new Error("Run npm run setup before starting Job Hunter.");
+    if (!existsSync(this.file))
+      throw new Error("Run npm run setup before starting WWS Job Hunter.");
     chmodSync(this.file, 0o600);
     const values = this.values();
     const obsoleteEmptyKeys = ["OPENAI_API_KEY", "OPENAI_MODEL"].filter(

@@ -1,4 +1,6 @@
-# Job Hunter
+# WWS Job Hunter
+
+<img src="web/public/wws-job-hunter.svg" width="64" height="64" alt="WWS Job Hunter logo" />
 
 An application for discovering jobs across countries, reviewing job matches, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
 
@@ -95,7 +97,7 @@ Database schema 5 adds opportunity timestamps for the rolling 24-hour Jobs windo
 
 The application uses React, Radix UI primitives, Lucide icons, Fastify, and SQLite. See [SECURITY.md](SECURITY.md) for the local security boundary. Licensed under MIT.
 
-Job titles open the original posting directly in a new tab. Status can be changed from the table with confirmation; the explicit edit icon opens a centered notes/details dialog. Jobs and Applications use the same stages and spreadsheet palette: Need to apply (blue), Applied (light green), Interviewed (teal), Offered (purple), Accepted (darker green), Rejected (red), and Withdrawn (gray). Stored internal status identifiers remain compatible with existing databases.
+Job titles open the original posting directly in a new tab. Status can be changed from the table with confirmation; the delete icon removes a posting after confirmation. Jobs and Applications use the same stages and spreadsheet palette: Need to apply (blue), Applied (light green), Interviewed (teal), Offered (purple), Accepted (darker green), Rejected (red), and Withdrawn (gray). Stored internal status identifiers remain compatible with existing databases.
 
 Jobs contains only Need to apply. Changing a job to Applied or another application stage moves it exclusively to Applications; moving it back to Need to apply returns it to Jobs. Each page’s status filters and counters follow that partition, and existing notes and scores are preserved.
 
