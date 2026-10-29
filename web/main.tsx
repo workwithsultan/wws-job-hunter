@@ -436,6 +436,17 @@ function App() {
         title="About Job Hunter"
         returnFocus={() => aboutTrigger.current?.focus()}
       >
+        <section className="about-intro" aria-labelledby="about-personal-note">
+          <h3 id="about-personal-note">A note from the creator</h3>
+          <p>
+            As an Indonesian from a developing country, I landed a remote US job using this
+            approach.
+          </p>
+          <p>
+            The key: keep improving your resume, stay consistent, and aim for 200 carefully filtered
+            applications.
+          </p>
+        </section>
         <ol className="about-content">
           <li>
             <h3>The problem</h3>
