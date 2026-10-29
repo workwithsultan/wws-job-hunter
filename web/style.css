@@ -691,7 +691,8 @@ tbody tr:last-child td {
 .run-completed {
   color: var(--success);
 }
-.run-interrupted {
+.run-interrupted,
+.run-warnings {
   color: var(--warning);
 }
 .run-failed {
@@ -2191,4 +2192,32 @@ h2 {
   color: var(--muted);
   font-size: 0.75rem;
   line-height: 1.6;
+}
+
+.search-progress-symbol.is-warning {
+  color: var(--warning);
+  background: var(--surface);
+}
+.log-issues {
+  margin-top: 0.75rem;
+  white-space: normal;
+}
+.log-issues summary {
+  color: var(--warning);
+  cursor: pointer;
+}
+.log-issues ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+.log-issues li {
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--border);
+}
+.log-issues li > a,
+.log-issues li > strong {
+  display: block;
 }

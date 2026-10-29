@@ -698,16 +698,20 @@ function JobsPage({
   ];
   const total = applications ? workspace.totals.applications : workspace.totals.jobs;
   const setupIncomplete = Object.values(missingSetup(workspace)).some(Boolean);
-  const searchFailed =
-    workspace.lastRun?.status === "failed" || workspace.lastRun?.status === "interrupted";
+  const searchNeedsAttention =
+    workspace.lastRun?.status === "failed" ||
+    workspace.lastRun?.status === "interrupted" ||
+    workspace.lastRun?.status === "warnings";
   const queueCleared =
     !applications && workspace.totals.jobs === 0 && workspace.totals.applications > 0;
   const emptyTitle = workspace.running
     ? "Searching for opportunities"
     : queueCleared
       ? "No opportunities from the last 24 hours"
-      : searchFailed
-        ? "Your search needs attention"
+      : searchNeedsAttention
+        ? workspace.lastRun?.status === "warnings"
+          ? "Search completed with warnings"
+          : "Your search needs attention"
         : workspace.lastRun?.status === "completed"
           ? "No opportunities from the last 24 hours"
           : setupIncomplete
@@ -717,7 +721,7 @@ function JobsPage({
     ? "Your search is running. New jobs will appear here as they are saved."
     : queueCleared
       ? "Opportunities stay here for 24 hours. Your tracked applications remain in Applications."
-      : searchFailed
+      : searchNeedsAttention
         ? workspace.lastRun!.message
         : workspace.lastRun?.status === "completed"
           ? "Opportunities stay here for 24 hours. Run a search to check for recent roles, or review your search preferences."
@@ -728,7 +732,7 @@ function JobsPage({
     ? "View search progress"
     : queueCleared
       ? "View applications"
-      : searchFailed
+      : searchNeedsAttention
         ? "Review search logs"
         : setupIncomplete
           ? "Set up your search"
@@ -830,7 +834,7 @@ function JobsPage({
                     ? "/logs"
                     : queueCleared
                       ? "/applications"
-                      : searchFailed
+                      : searchNeedsAttention
                         ? "/logs"
                         : "/settings"
               }

@@ -20,14 +20,17 @@ export function SearchProgress({
   returnFocus: () => void;
 }) {
   const running = !run || run.status === "running";
-  const completed = run?.status === "completed";
+  const warning = run?.status === "warnings";
+  const completed = run?.status === "completed" || warning;
   const stage =
     !run || run.message.startsWith("Checking") ? 0 : run.message.startsWith("Discovering") ? 1 : 2;
   const title = running
     ? "Finding your next opportunity"
-    : completed
-      ? "Search complete"
-      : "Search stopped";
+    : warning
+      ? "Completed with warnings"
+      : completed
+        ? "Search complete"
+        : "Search stopped";
   return (
     <Modal
       open={open}
@@ -39,22 +42,33 @@ export function SearchProgress({
       <div className="search-progress" role="status" aria-live="polite" aria-atomic="true">
         <div
           className={
-            "search-progress-symbol" + (running ? " is-searching" : completed ? " is-complete" : "")
+            "search-progress-symbol" +
+            (running ? " is-searching" : warning ? " is-warning" : completed ? " is-complete" : "")
           }
           aria-hidden="true"
         >
-          {running ? <Search /> : completed ? <CheckCircle2 /> : <AlertCircle />}
+          {running ? (
+            <Search />
+          ) : warning ? (
+            <AlertCircle />
+          ) : completed ? (
+            <CheckCircle2 />
+          ) : (
+            <AlertCircle />
+          )}
         </div>
         <p className="search-progress-message">
           {running
             ? run?.message || "Starting your search…"
-            : completed
-              ? run.added
-                ? `${run.added} new ${run.added === 1 ? "opportunity is" : "opportunities are"} ready in Jobs.`
-                : run.found
-                  ? run.message
-                  : "No postings were returned for your selected search window and filters."
-              : run?.message}
+            : warning
+              ? `${run.added ? `${run.added} new ${run.added === 1 ? "opportunity is" : "opportunities are"} ready in Jobs.` : "No new matches were added."} Some postings could not be assessed. Check logs for details.`
+              : completed
+                ? run.added
+                  ? `${run.added} new ${run.added === 1 ? "opportunity is" : "opportunities are"} ready in Jobs.`
+                  : run.found
+                    ? run.message
+                    : "No postings were returned for your selected search window and filters."
+                : run?.message}
         </p>
         {running && (
           <ol className="search-progress-steps" aria-label="Search stages">

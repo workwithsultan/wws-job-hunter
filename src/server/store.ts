@@ -11,6 +11,7 @@ import {
   type Preferences,
   type SearchRun,
   type RunList,
+  type RunIssue,
   type Workspace,
 } from "../shared/model.js";
 
@@ -49,7 +50,8 @@ const visibleAssessment =
 const queueStatus = "status='ready'";
 const applicationStatus =
   "status IN ('applied','interviewing','offer','accepted','rejected','withdrawn')";
-const runColumns = "id,startedAt,finishedAt,status,found,added,matches,message,trigger";
+const runColumns =
+  "id,startedAt,finishedAt,status,found,added,matches,message,trigger,(SELECT count(*) FROM run_issues WHERE runId=runs.id) AS issueCount";
 const activeOpportunity = `${visibleAssessment} AND ${queueStatus} AND julianday(opportunityAt)>julianday(?)`;
 
 export class Store {
@@ -62,7 +64,7 @@ export class Store {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.db.pragma("busy_timeout = 5000");
-    if (Number(this.db.pragma("user_version", { simple: true })) > 5)
+    if (Number(this.db.pragma("user_version", { simple: true })) > 6)
       throw new Error("This database requires a newer version of Job Hunter.");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS resume_document (id INTEGER PRIMARY KEY CHECK(id=1), pdf BLOB NOT NULL);
@@ -107,7 +109,33 @@ export class Store {
         this.db
           .prepare("UPDATE preferences SET value=? WHERE id=1")
           .run(JSON.stringify(this.preferences()));
-      this.db.pragma("user_version = 5");
+      const runDefinition = this.db
+        .prepare("SELECT sql FROM sqlite_master WHERE name='runs'")
+        .get() as { sql: string };
+      if (!runDefinition.sql.includes("'warnings'")) {
+        this.db.exec(`
+          CREATE TABLE runs_v6 (
+            id INTEGER PRIMARY KEY, startedAt TEXT NOT NULL, finishedAt TEXT,
+            status TEXT NOT NULL CHECK(status IN ('running','completed','warnings','failed','interrupted')),
+            found INTEGER NOT NULL DEFAULT 0, added INTEGER NOT NULL DEFAULT 0, matches INTEGER NOT NULL DEFAULT 0,
+            review INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '', trigger TEXT NOT NULL
+          );
+          INSERT INTO runs_v6 SELECT id,startedAt,finishedAt,status,found,added,matches,review,message,trigger FROM runs;
+          DROP TABLE runs;
+          ALTER TABLE runs_v6 RENAME TO runs;
+          UPDATE runs SET status='warnings' WHERE status='failed' AND matches>0 AND finishedAt IS NOT NULL;
+        `);
+      }
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS run_issues (
+          id INTEGER PRIMARY KEY, runId INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+          jobId INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+          stage TEXT NOT NULL CHECK(stage IN ('source','ai','search')),
+          code TEXT NOT NULL, httpStatus INTEGER, message TEXT NOT NULL, createdAt TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS run_issues_run ON run_issues(runId);
+      `);
+      this.db.pragma("user_version = 6");
     })();
   }
   recoverInterrupted(): void {
@@ -256,6 +284,15 @@ export class Store {
   has(url: string): boolean {
     return Boolean(this.db.prepare("SELECT id FROM jobs WHERE url=?").get(url));
   }
+  hasValidatedOutcome(url: string): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          `SELECT id FROM jobs WHERE url=? AND ((${visibleAssessment}) OR (assessment='not_a_match' AND score=0 AND status<>'review'))`,
+        )
+        .get(url),
+    );
+  }
   insert(job: InsertJob): boolean {
     const now = this.now().toISOString();
     return (
@@ -373,7 +410,37 @@ export class Store {
       )
       .run({ ...counts, id, message });
   }
-  finishRun(id: number, status: "completed" | "failed" | "interrupted", message: string): void {
+  recordIssue(
+    runId: number,
+    jobId: number | null,
+    issue: Pick<RunIssue, "stage" | "code" | "httpStatus" | "message">,
+  ): void {
+    this.db
+      .prepare(
+        "INSERT INTO run_issues(runId,jobId,stage,code,httpStatus,message,createdAt) VALUES(?,?,?,?,?,?,?)",
+      )
+      .run(
+        runId,
+        jobId,
+        issue.stage,
+        issue.code,
+        issue.httpStatus,
+        issue.message,
+        this.now().toISOString(),
+      );
+  }
+  issues(runId: number): RunIssue[] {
+    return this.db
+      .prepare(
+        "SELECT run_issues.*,jobs.title,jobs.url FROM run_issues LEFT JOIN jobs ON jobs.id=run_issues.jobId WHERE runId=? ORDER BY run_issues.id",
+      )
+      .all(runId) as RunIssue[];
+  }
+  finishRun(
+    id: number,
+    status: "completed" | "warnings" | "failed" | "interrupted",
+    message: string,
+  ): void {
     this.db
       .prepare("UPDATE runs SET status=?,message=?,finishedAt=? WHERE id=?")
       .run(status, message, this.now().toISOString(), id);

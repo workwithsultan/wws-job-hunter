@@ -26,6 +26,16 @@ export class PostingUnavailableError extends Error {
     this.name = "PostingUnavailableError";
   }
 }
+export class PostingReadError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly httpStatus: number | null = null,
+  ) {
+    super(message);
+    this.name = "PostingReadError";
+  }
+}
 const allowedFetch = (url: URL) =>
   isJobUrl(url.href) ||
   (url.protocol === "https:" &&
@@ -37,13 +47,24 @@ async function read(url: URL, depth = 0, signal?: AbortSignal): Promise<string> 
   signal?.throwIfAborted();
   if (!allowedFetch(url) || depth > 4)
     throw new Error("The job redirects outside the supported job sites.");
-  const response = await fetch(url, {
-    redirect: "manual",
-    signal: signal
-      ? AbortSignal.any([AbortSignal.timeout(25000), signal])
-      : AbortSignal.timeout(25000),
-    headers: { Accept: "text/html,application/json", "User-Agent": "JobHunter/0.1" },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      redirect: "manual",
+      signal: signal
+        ? AbortSignal.any([AbortSignal.timeout(25000), signal])
+        : AbortSignal.timeout(25000),
+      headers: { Accept: "text/html,application/json", "User-Agent": "JobHunter/0.1" },
+    });
+  } catch (error) {
+    signal?.throwIfAborted();
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
+      throw new PostingReadError(
+        "source_timeout",
+        "The job site did not respond within 25 seconds.",
+      );
+    throw new PostingReadError("source_connection_failed", "The job site could not be reached.");
+  }
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("location");
     await response.body?.cancel();
@@ -60,7 +81,13 @@ async function read(url: URL, depth = 0, signal?: AbortSignal): Promise<string> 
   if (!response.ok) {
     await response.body?.cancel();
     if (response.status === 404 || response.status === 410) throw new PostingUnavailableError();
-    throw new Error("The job page could not be read.");
+    throw new PostingReadError(
+      "source_http_error",
+      response.status === 403
+        ? "The job site denied automated access (HTTP 403)."
+        : `The job site returned HTTP ${response.status}.`,
+      response.status,
+    );
   }
   const reader = response.body?.getReader();
   if (!reader) throw new Error("The job page is empty.");

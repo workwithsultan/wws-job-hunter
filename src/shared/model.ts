@@ -131,20 +131,34 @@ export interface SearchRun {
   id: number;
   startedAt: string;
   finishedAt: string | null;
-  status: "running" | "completed" | "failed" | "interrupted";
+  status: "running" | "completed" | "warnings" | "failed" | "interrupted";
   found: number;
   added: number;
   matches: number;
   message: string;
+  issueCount: number;
   // Retain the origin of historical runs; new runs are always manual.
   trigger: "manual" | "schedule";
 }
 export const runStatusLabels = {
   running: "Running",
   completed: "Succeeded",
+  warnings: "Completed with warnings",
   failed: "Failed",
   interrupted: "Interrupted",
 } as const;
+export interface RunIssue {
+  id: number;
+  runId: number;
+  jobId: number | null;
+  title: string | null;
+  url: string | null;
+  stage: "source" | "ai" | "search";
+  code: string;
+  httpStatus: number | null;
+  message: string;
+  createdAt: string;
+}
 export interface RunList {
   runs: SearchRun[];
   total: number;

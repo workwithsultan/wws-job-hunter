@@ -576,7 +576,7 @@ test("schema upgrade retains existing numeric scores and keeps assessment and ap
         columns.some((c) => c.name === "assessment"),
         true,
       );
-      assert.equal(check.pragma("user_version", { simple: true }), 5);
+      assert.equal(check.pragma("user_version", { simple: true }), 6);
     } finally {
       check.close();
     }
@@ -1538,9 +1538,23 @@ test("legacy review records cannot enter either workspace through lists, details
 
 test("the real runner only publishes confirmed matches and leaves assessment failures hidden for retry", async () => {
   const originalFetch = globalThis.fetch;
-  for (const scenario of ["match", "not_a_match", "review", "unreadable", "closed"] as const) {
+  for (const scenario of [
+    "match",
+    "not_a_match",
+    "review",
+    "unreadable",
+    "closed",
+    "partial_source",
+    "partial_ai",
+    "fatal_after_match",
+    "existing_match_retry",
+  ] as const) {
     const item = installation();
     let runner: Runner | undefined;
+    const partial =
+      scenario.startsWith("partial") ||
+      scenario === "fatal_after_match" ||
+      scenario === "existing_match_retry";
     try {
       item.store.savePreferences({
         ...defaultPreferences,
@@ -1552,7 +1566,7 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
         OPENROUTER_MODEL: "vendor/assessment",
         SERPAPI_API_KEYS: "unit-test-serp-key",
       });
-      globalThis.fetch = async (input) => {
+      globalThis.fetch = async (input, init) => {
         const url = new URL(String(input));
         if (url.href === "https://openrouter.ai/api/v1/key") return Response.json({ data: {} });
         if (url.href === "https://openrouter.ai/api/v1/models/user")
@@ -1586,47 +1600,119 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
                     link: "https://jobs.lever.co/company/operations",
                     snippet: "Operations experience",
                   },
+                  ...(partial
+                    ? [
+                        {
+                          title: "Operations Specialist",
+                          link: "https://jobs.lever.co/company/operations-second",
+                          snippet: "Operations experience",
+                        },
+                      ]
+                    : []),
                 ]
               : [],
           });
-        if (url.href === "https://jobs.lever.co/company/operations")
+        if (url.href.startsWith("https://jobs.lever.co/company/operations"))
           return scenario === "closed"
             ? new Response("", { status: 404 })
-            : scenario === "unreadable"
+            : scenario === "unreadable" ||
+                ((scenario === "partial_source" || scenario === "existing_match_retry") &&
+                  url.pathname.endsWith("-second"))
               ? new Response("", { status: 403 })
               : new Response(
                   "<main>" + "Operations workflow experience required. ".repeat(12) + "</main>",
                   { headers: { "content-type": "text/html" } },
                 );
-        if (url.href === "https://openrouter.ai/api/v1/chat/completions")
+        if (url.href === "https://openrouter.ai/api/v1/chat/completions") {
+          const payload = JSON.parse(String(init?.body)) as { messages: { content: string }[] };
+          const assessed = JSON.parse(payload.messages[1]!.content) as { url: string };
+          const second = assessed.url.endsWith("-second");
+          if (scenario === "fatal_after_match" && second)
+            return Response.json({ error: { code: 402 } }, { status: 402 });
           return Response.json({
             choices: [
               {
                 finish_reason: "stop",
                 message: {
                   content: JSON.stringify({
-                    verdict: scenario,
-                    score: scenario === "match" ? 90 : scenario === "review" ? 50 : 0,
-                    reason: "Evidence-based fit.",
+                    verdict: partial ? "match" : scenario,
+                    score: partial || scenario === "match" ? 90 : scenario === "review" ? 50 : 0,
+                    reason:
+                      scenario === "partial_ai" && second
+                        ? Array(13).fill("fit").join(" ")
+                        : "Evidence-based fit.",
                   }),
                 },
               },
             ],
           });
+        }
         throw new Error("Unexpected test transport route.");
       };
+      if (scenario === "existing_match_retry")
+        item.store.insert({
+          title: "Operations Manager",
+          url: "https://jobs.lever.co/company/operations",
+          source: "jobs.lever.co",
+          snippet: "",
+          description: "Existing source",
+          assessment: "match",
+          score: 90,
+          reason: "Existing valid fit.",
+          status: "ready",
+        });
       runner = new Runner(item.store, item.config);
       runner.start();
       for (let i = 0; runner.running && i < 200; i++)
         await new Promise((resolve) => setTimeout(resolve, 5));
       assert.equal(runner.running, false);
       const failed = scenario === "review" || scenario === "unreadable";
-      assert.equal(item.store.runs()[0]?.status, failed ? "failed" : "completed");
-      assert.equal(item.store.totals().jobs, scenario === "match" ? 1 : 0);
-      assert.equal(item.store.pending().length, failed ? 1 : 0);
+      assert.equal(
+        item.store.runs()[0]?.status,
+        partial ? "warnings" : failed ? "failed" : "completed",
+      );
+      assert.equal(item.store.totals().jobs, partial || scenario === "match" ? 1 : 0);
+      assert.equal(item.store.pending().length, failed || partial ? 1 : 0);
       assert.ok(!("review" in item.store.runs()[0]!));
+      const run = item.store.runs()[0]!;
+      if (scenario === "existing_match_retry") {
+        assert.equal(run.added, 0);
+        assert.equal(run.matches, 0);
+      }
+      assert.equal(run.issueCount, failed || partial ? 1 : 0);
+      const issues = item.store.issues(run.id);
+      if (scenario === "partial_source") {
+        assert.equal(issues[0]!.httpStatus, 403);
+        assert.equal(issues[0]!.code, "source_http_error");
+      }
+      if (scenario === "partial_ai") {
+        assert.equal(issues[0]!.code, "reason_word_limit");
+        assert.equal(JSON.stringify(issues).includes("fit fit"), false);
+      }
+      if (scenario === "fatal_after_match") {
+        assert.equal(issues[0]!.httpStatus, 402);
+        assert.equal(issues[0]!.code, "ai_request_failed");
+      }
+      if (partial) {
+        const app = buildApp(item.store, item.config, runner, item.directory, 8790);
+        try {
+          const history = await app.inject({
+            url: "/api/runs?status=warnings",
+            headers: { host: "127.0.0.1:8790" },
+          });
+          assert.equal(history.json().total, 1);
+          const diagnostics = await app.inject({
+            url: `/api/runs/${run.id}/issues`,
+            headers: { host: "127.0.0.1:8790" },
+          });
+          assert.equal(diagnostics.json().issues[0].jobId, 2);
+          assert.equal(diagnostics.json().issues[0].title, "Operations Specialist");
+        } finally {
+          await app.close();
+        }
+      }
       if (failed) assert.match(item.store.runs()[0]!.message, /could not be assessed/);
-      if (scenario === "match") {
+      if (scenario === "match" || partial) {
         assert.equal(item.store.update(1, "applied", ""), true);
         assert.equal(item.store.totals().applications, 1);
       } else {
@@ -1879,5 +1965,56 @@ test("Workable hidden careers-page locations do not become advertised eligibilit
     );
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test("version-five run migration preserves jobs and history while distinguishing historical partial success", () => {
+  const instant = new Date("2026-10-29T00:00:00Z");
+  const item = installation(() => instant);
+  let upgraded: Store | undefined;
+  try {
+    item.store.insert({
+      title: "Existing confirmed role",
+      url: "https://jobs.lever.co/company/preserved",
+      source: "jobs.lever.co",
+      snippet: "",
+      description: "Existing source text",
+      assessment: "match",
+      score: 88,
+      reason: "Relevant experience",
+      status: "ready",
+    });
+    item.store.close();
+    const path = join(item.directory, "workspace.sqlite");
+    const db = new Database(path);
+    db.exec(`DROP TABLE run_issues; DROP TABLE runs;
+      CREATE TABLE runs (id INTEGER PRIMARY KEY, startedAt TEXT NOT NULL, finishedAt TEXT, status TEXT NOT NULL CHECK(status IN ('running','completed','failed','interrupted')), found INTEGER NOT NULL DEFAULT 0, added INTEGER NOT NULL DEFAULT 0, matches INTEGER NOT NULL DEFAULT 0, review INTEGER NOT NULL DEFAULT 0, message TEXT NOT NULL DEFAULT '', trigger TEXT NOT NULL);
+      INSERT INTO runs VALUES(1,'2026-10-28T00:00:00Z','2026-10-28T00:01:00Z','failed',8,1,1,0,'Some postings could not be assessed.','manual');
+      INSERT INTO runs VALUES(2,'2026-10-28T01:00:00Z','2026-10-28T01:01:00Z','failed',0,0,0,0,'Authentication failed.','manual');
+      PRAGMA user_version=5;`);
+    db.close();
+    upgraded = new Store(path, () => instant);
+    assert.equal(upgraded.job(1)!.score, 88);
+    assert.equal(upgraded.totals().jobs, 1);
+    assert.equal(upgraded.runs().find((run) => run.id === 1)!.status, "warnings");
+    assert.equal(upgraded.runs().find((run) => run.id === 1)!.finishedAt, "2026-10-28T00:01:00Z");
+    assert.equal(upgraded.runs().find((run) => run.id === 2)!.status, "failed");
+    assert.equal(upgraded.issues(1).length, 0);
+    const runId = upgraded.startRun();
+    upgraded.recordIssue(runId, 1, {
+      stage: "ai",
+      code: "reason_word_limit",
+      httpStatus: null,
+      message: "The AI reason exceeded the 12-word limit.",
+    });
+    upgraded.finishRun(runId, "warnings", "Partial result preserved.");
+    assert.equal(upgraded.runs()[0]!.issueCount, 1);
+    assert.equal(upgraded.issues(runId)[0]!.title, "Existing confirmed role");
+    assert.equal(upgraded.delete(1), true);
+    assert.equal(upgraded.issues(runId)[0]!.jobId, null);
+    assert.equal(upgraded.issues(runId)[0]!.title, null);
+  } finally {
+    upgraded?.close();
+    item.cleanup();
   }
 });

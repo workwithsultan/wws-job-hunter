@@ -29,7 +29,23 @@ const completionSchema = z.object({
     )
     .min(1),
 });
-export class OpenRouterError extends Error {}
+export class OpenRouterError extends Error {
+  constructor(
+    message: string,
+    readonly httpStatus: number | null = null,
+  ) {
+    super(message);
+  }
+}
+export class AssessmentOutputError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AssessmentOutputError";
+  }
+}
 function requestError(status: number, expired = false): OpenRouterError {
   const message =
     status === 401
@@ -45,7 +61,7 @@ function requestError(status: number, expired = false): OpenRouterError {
             : status === 400 || status === 404
               ? "OpenRouter could not use the selected model or requested structured output. Refresh models in Settings."
               : "OpenRouter is unavailable or the model provider failed. Try again later.";
-  return new OpenRouterError(message);
+  return new OpenRouterError(message, status);
 }
 
 export class OpenRouterClient {
@@ -132,7 +148,7 @@ export class OpenRouterClient {
     prompt: string,
     job: { title: string; url: string; description: string; details?: Record<string, unknown> },
     signal: AbortSignal,
-  ): Promise<z.infer<typeof assessmentSchema> | null> {
+  ): Promise<z.infer<typeof assessmentSchema>> {
     const value = await this.json(
       "/chat/completions",
       {
@@ -159,19 +175,64 @@ export class OpenRouterClient {
       signal,
     );
     const response = completionSchema.safeParse(value);
-    if (!response.success) return null;
+    if (!response.success)
+      throw new AssessmentOutputError(
+        "invalid_envelope",
+        "The AI response did not contain a valid completion.",
+      );
     const choice = response.data.choices[0]!;
-    if (choice.finish_reason !== "stop" || choice.message.refusal || !choice.message.content)
-      return null;
+    if (choice.message.refusal)
+      throw new AssessmentOutputError(
+        "model_refusal",
+        "The model declined to assess this posting.",
+      );
+    if (choice.finish_reason === "length")
+      throw new AssessmentOutputError(
+        "output_truncated",
+        "The model stopped before finishing its response.",
+      );
+    if (choice.finish_reason !== "stop")
+      throw new AssessmentOutputError("incomplete_output", "The model did not finish normally.");
+    if (!choice.message.content)
+      throw new AssessmentOutputError("empty_output", "The model returned no assessment text.");
+    let output: unknown;
     try {
-      const parsed = assessmentSchema.safeParse(JSON.parse(choice.message.content));
-      return parsed.success &&
-        parsed.data.reason.split(/\s+/u).length <= 12 &&
-        (parsed.data.verdict === "match" ? parsed.data.score > 0 : parsed.data.score === 0)
-        ? parsed.data
-        : null;
+      output = JSON.parse(choice.message.content);
     } catch {
-      return null;
+      throw new AssessmentOutputError("invalid_json", "The model response was not valid JSON.");
     }
+    if (
+      typeof output === "object" &&
+      output !== null &&
+      "reason" in output &&
+      typeof output.reason === "string" &&
+      output.reason.trim().length > 80
+    )
+      throw new AssessmentOutputError(
+        "reason_character_limit",
+        "The AI reason exceeded the 80-character limit.",
+      );
+    const parsed = assessmentSchema.safeParse(output);
+    if (!parsed.success) {
+      const field = parsed.error.issues[0]?.path[0];
+      const known = field === "verdict" || field === "score" || field === "reason";
+      throw new AssessmentOutputError(
+        known ? `invalid_${field}` : "invalid_schema",
+        known
+          ? `The AI ${field} did not meet the required format.`
+          : "The AI output contained missing, unexpected or invalid fields.",
+      );
+    }
+    if (parsed.data.reason.split(/\s+/u).length > 12)
+      throw new AssessmentOutputError(
+        "reason_word_limit",
+        "The AI reason exceeded the 12-word limit.",
+      );
+    if (parsed.data.verdict === "match" ? parsed.data.score === 0 : parsed.data.score !== 0)
+      throw new AssessmentOutputError(
+        "inconsistent_verdict_score",
+        "The AI verdict and score contradicted each other.",
+      );
+    return parsed.data;
   }
 }

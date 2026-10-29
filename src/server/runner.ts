@@ -1,5 +1,5 @@
 import { buildAssessmentPrompt } from "../shared/assessment-context.js";
-import { OpenRouterClient, OpenRouterError } from "./openrouter.js";
+import { OpenRouterClient, OpenRouterError, AssessmentOutputError } from "./openrouter.js";
 import { Providers } from "./providers.js";
 import { searchBudget } from "../shared/budget.js";
 import { assessmentStatus } from "../shared/assessment.js";
@@ -9,7 +9,7 @@ import { normalizeJobUrl } from "../discovery/url.js";
 import { sourceDomains, type Preferences } from "../shared/model.js";
 import { Configuration } from "./config.js";
 import { Store } from "./store.js";
-import { extractPosting, isJobUrl, PostingUnavailableError } from "./extract.js";
+import { extractPosting, isJobUrl, PostingUnavailableError, PostingReadError } from "./extract.js";
 
 export class Runner {
   running = false;
@@ -65,6 +65,8 @@ export class Runner {
   ): Promise<void> {
     const counts = { found: 0, added: 0, matches: 0 };
     let unassessed = 0;
+    let handled = 0;
+    let recordedFatalIssue = false;
     let stage = "connections";
     try {
       this.store.progress(id, counts, "Checking provider accounts…");
@@ -104,6 +106,7 @@ export class Runner {
         if (!isJobUrl(url)) throw new Error("The provider returned an unsupported job URL.");
         if (this.store.has(url)) {
           seen++;
+          if (this.store.hasValidatedOutcome(url)) handled++;
           continue;
         }
         const source = sourceDomains.find(
@@ -153,14 +156,25 @@ export class Runner {
               status: "not_a_fit",
             });
             unavailable++;
+            handled++;
           } else {
             unassessed++;
+            this.store.recordIssue(id, job.id, {
+              stage: "source",
+              code: error instanceof PostingReadError ? error.code : "source_unreadable",
+              httpStatus: error instanceof PostingReadError ? error.httpStatus : null,
+              message:
+                error instanceof PostingReadError
+                  ? error.message
+                  : "The posting did not provide readable job details.",
+            });
           }
           continue;
         }
         const matched = preferences.roles.some((term) => matchesTitle(title, term));
         const excluded = preferences.exclusions.some((term) => matchesTitle(title, term));
         if (!matched || excluded) {
+          handled++;
           if (excluded) excludedCount++;
           this.store.assess(job.id, {
             description,
@@ -174,16 +188,33 @@ export class Runner {
           continue;
         }
         titleMatches++;
-        const result = await client.assess(
-          credentials.OPENROUTER_MODEL!,
-          prompt,
-          { title, url: job.url, description, details },
-          signal,
-        );
-        if (!result) {
-          unassessed++;
-          continue;
+        let result: Awaited<ReturnType<OpenRouterClient["assess"]>>;
+        try {
+          result = await client.assess(
+            credentials.OPENROUTER_MODEL!,
+            prompt,
+            { title, url: job.url, description, details },
+            signal,
+          );
+        } catch (error) {
+          signal.throwIfAborted();
+          this.store.recordIssue(id, job.id, {
+            stage: "ai",
+            code: error instanceof AssessmentOutputError ? error.code : "ai_request_failed",
+            httpStatus: error instanceof OpenRouterError ? error.httpStatus : null,
+            message:
+              error instanceof AssessmentOutputError || error instanceof OpenRouterError
+                ? error.message
+                : "The AI assessment could not be completed.",
+          });
+          if (error instanceof AssessmentOutputError) {
+            unassessed++;
+            continue;
+          }
+          recordedFatalIssue = true;
+          throw error;
         }
+        handled++;
         assessed++;
         if (result.verdict === "not_a_match") rejected++;
         const changed = this.store.assess(job.id, {
@@ -206,7 +237,11 @@ export class Runner {
           ? ` ${unassessed} postings could not be assessed. Only confirmed matches are shown. Unassessed postings remain pending for a retry.`
           : "");
       this.store.progress(id, counts, message);
-      this.store.finishRun(id, unassessed ? "failed" : "completed", message);
+      this.store.finishRun(
+        id,
+        unassessed ? (handled ? "warnings" : "failed") : "completed",
+        message,
+      );
     } catch (error) {
       this.store.progress(id, counts, "Search stopped.");
       if (signal.aborted) {
@@ -217,9 +252,19 @@ export class Runner {
         );
         return;
       }
+      if (!recordedFatalIssue)
+        this.store.recordIssue(id, null, {
+          stage: "search",
+          code: `${stage}_failed`,
+          httpStatus: error instanceof OpenRouterError ? error.httpStatus : null,
+          message:
+            error instanceof OpenRouterError
+              ? error.message
+              : `The ${stage} stage could not complete.`,
+        });
       this.store.finishRun(
         id,
-        "failed",
+        handled ? "warnings" : "failed",
         stage === "connections"
           ? error instanceof Error
             ? error.message

@@ -321,6 +321,10 @@ export function buildApp(
       return { ok: true };
     }),
   );
+  app.get("/api/runs/:id/issues", async (request) => {
+    const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
+    return { issues: store.issues(id) };
+  });
   app.get("/api/runs", async (request) => {
     const query = z
       .object({

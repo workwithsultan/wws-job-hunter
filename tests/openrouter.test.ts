@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { OpenRouterClient, OpenRouterError } from "../src/server/openrouter.js";
+import {
+  OpenRouterClient,
+  OpenRouterError,
+  AssessmentOutputError,
+} from "../src/server/openrouter.js";
 import { Configuration } from "../src/server/config.js";
 import { Providers } from "../src/server/providers.js";
 import { Store } from "../src/server/store.js";
@@ -140,14 +144,14 @@ test("malformed, out-of-range, refused and truncated assessments never become a 
     { choices: [] },
   ]) {
     const request: typeof fetch = async () => Response.json(payload);
-    assert.equal(
-      await new OpenRouterClient("unit-test-key", request).assess(
+    await assert.rejects(
+      new OpenRouterClient("unit-test-key", request).assess(
         model.id,
         "Resume",
         job,
         new AbortController().signal,
       ),
-      null,
+      AssessmentOutputError,
     );
   }
 });
@@ -281,12 +285,51 @@ test("system-managed output requirements stay fixed and invalid reason lengths a
       assert.ok(body.messages[0]!.content.endsWith(assessmentResponseInstructions));
       return Response.json(completion(JSON.stringify({ ...assessment, reason })));
     };
-    const result = await new OpenRouterClient("unit-test-key", request).assess(
+    const result = new OpenRouterClient("unit-test-key", request).assess(
       model.id,
       "Assess relevant experience.",
       job,
       new AbortController().signal,
     );
-    assert.equal(result !== null, accepted);
+    if (accepted) assert.equal((await result).reason, reason);
+    else
+      await assert.rejects(
+        result,
+        (error) =>
+          error instanceof AssessmentOutputError &&
+          error.code === (reason.length > 80 ? "reason_character_limit" : "reason_word_limit"),
+      );
+  }
+});
+
+test("AI diagnostics distinguish failure types without exposing provider content", async () => {
+  const marker = "private-provider-content";
+  const cases: [unknown, string][] = [
+    [completion(marker), "invalid_json"],
+    [completion(JSON.stringify(assessment), "length"), "output_truncated"],
+    [completion(null, "stop", marker), "model_refusal"],
+    [completion(JSON.stringify({ ...assessment, score: 0 })), "inconsistent_verdict_score"],
+    [completion(JSON.stringify({ ...assessment, score: 101 })), "invalid_score"],
+    [completion(JSON.stringify({ ...assessment, verdict: marker })), "invalid_verdict"],
+    [completion(""), "empty_output"],
+    [{ choices: [] }, "invalid_envelope"],
+  ];
+  for (const [payload, code] of cases) {
+    const request: typeof fetch = async () => Response.json(payload);
+    await assert.rejects(
+      new OpenRouterClient("unit-test-key", request).assess(
+        model.id,
+        "Private resume",
+        job,
+        new AbortController().signal,
+      ),
+      (error) => {
+        assert.ok(error instanceof AssessmentOutputError);
+        assert.equal(error.code, code);
+        assert.equal(error.message.includes(marker), false);
+        assert.equal(error.message.includes("Private resume"), false);
+        return true;
+      },
+    );
   }
 });

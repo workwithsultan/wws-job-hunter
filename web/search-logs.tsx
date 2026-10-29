@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
-import { runStatusLabels, type RunList } from "../src/shared/model";
+import { runStatusLabels, type RunList, type RunIssue } from "../src/shared/model";
 import { runDuration } from "./log-format";
 import { api } from "./api";
 import { Alert, Busy, Choice, PendingLabel } from "./ui";
@@ -144,7 +144,16 @@ export function SearchLogs({
                       </span>
                       <span className="log-meta">{run.found.toLocaleString()} found</span>
                     </td>
-                    <td className="log-message">{run.message}</td>
+                    <td className="log-message">
+                      <p>{run.message}</p>
+                      {run.issueCount > 0 ? (
+                        <RunDiagnostics runId={run.id} count={run.issueCount} />
+                      ) : run.status === "warnings" ? (
+                        <p className="log-meta">
+                          Detailed diagnostics were not recorded for this older run.
+                        </p>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -198,5 +207,64 @@ export function SearchLogs({
         </>
       )}
     </div>
+  );
+}
+
+function RunDiagnostics({ runId, count }: { runId: number; count: number }) {
+  const [open, setOpen] = useState(false);
+  const [issues, setIssues] = useState<RunIssue[] | null>(null);
+  const [failure, setFailure] = useState("");
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    let disposed = false;
+    setFailure("");
+    setIssues(null);
+    void api<{ issues: RunIssue[] }>(`/api/runs/${runId}/issues`)
+      .then((result) => {
+        if (!disposed) setIssues(result.issues);
+      })
+      .catch((error) => {
+        if (!disposed)
+          setFailure(error instanceof Error ? error.message : "Diagnostics could not be loaded.");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [open, runId, count, revision]);
+  return (
+    <details className="log-issues" onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        {count} {count === 1 ? "issue" : "issues"} · View details
+      </summary>
+      {open &&
+        (failure ? (
+          <Alert onRetry={() => setRevision((value) => value + 1)}>{failure}</Alert>
+        ) : !issues ? (
+          <Busy label="Loading diagnostics…" />
+        ) : (
+          <ul>
+            {issues.map((issue) => (
+              <li key={issue.id}>
+                {issue.url && issue.title ? (
+                  <a href={issue.url} target="_blank" rel="noreferrer">
+                    {issue.title}
+                  </a>
+                ) : (
+                  <strong>{issue.title || "Search stage"}</strong>
+                )}
+                <span className="log-meta">
+                  {issue.stage === "source"
+                    ? "Posting access"
+                    : issue.stage === "ai"
+                      ? "AI assessment"
+                      : "Search"}
+                </span>
+                <p>{issue.message}</p>
+              </li>
+            ))}
+          </ul>
+        ))}
+    </details>
   );
 }
