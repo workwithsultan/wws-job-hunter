@@ -1669,7 +1669,7 @@ h2 {
 .setup-blocked {
   color: var(--muted);
 }
-@media (min-width: 1280px) {
+@media (min-width: 1440px) {
   .jobs-layout {
     grid-template-columns: minmax(0, 1fr) 20rem;
     grid-template-areas: "results quota";
@@ -1826,17 +1826,15 @@ h2 {
     padding-inline-start: 2rem;
   }
 }
-@media (min-width: 1280px) and (max-width: 1535px) {
-  .jobs-layout .desktop-cell {
-    display: none;
-  }
-  .jobs-layout .mobile-source {
-    display: block;
-    color: var(--muted);
-    margin-block-start: 0.25rem;
-    font-size: 0.75rem;
-    line-height: 1rem;
-  }
+.jobs-layout .desktop-cell {
+  display: none;
+}
+.jobs-layout .mobile-source {
+  display: block;
+  color: var(--muted);
+  margin-block-start: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
 }
 @media (max-width: 767px) {
   .jobs-table .assessment-cell {
@@ -1935,7 +1933,7 @@ h2 {
   align-items: center;
   gap: 0.5rem;
 }
-.job-edit {
+.job-delete {
   flex: none;
 }
 .resume-actions {
@@ -2220,4 +2218,39 @@ h2 {
 .log-issues li > a,
 .log-issues li > strong {
   display: block;
+}
+
+.jobs-layout .jobs-table td:first-child {
+  width: auto;
+}
+.jobs-table .verdict-cell {
+  min-width: 13rem;
+  max-width: 24rem;
+  white-space: normal;
+}
+.verdict-cell p,
+.mobile-verdict p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.mobile-verdict {
+  display: none;
+}
+@media (max-width: 767px) {
+  .jobs-table .verdict-cell {
+    display: none;
+  }
+  .mobile-verdict {
+    display: block;
+    margin-top: 0.5rem;
+  }
+}
+
+.verdict-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
 }

@@ -14,7 +14,7 @@ export const assessmentSchema = z
   .object({
     verdict: z.enum(["match", "not_a_match"]),
     score: z.number().int().min(0).max(100),
-    reason: z.string().trim().min(1).max(80),
+    reason: z.string().trim().min(1),
   })
   .strict();
 export function assessmentLabel(value: Assessment | null): string {

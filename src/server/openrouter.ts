@@ -201,17 +201,6 @@ export class OpenRouterClient {
     } catch {
       throw new AssessmentOutputError("invalid_json", "The model response was not valid JSON.");
     }
-    if (
-      typeof output === "object" &&
-      output !== null &&
-      "reason" in output &&
-      typeof output.reason === "string" &&
-      output.reason.trim().length > 80
-    )
-      throw new AssessmentOutputError(
-        "reason_character_limit",
-        "The AI reason exceeded the 80-character limit.",
-      );
     const parsed = assessmentSchema.safeParse(output);
     if (!parsed.success) {
       const field = parsed.error.issues[0]?.path[0];
@@ -223,11 +212,6 @@ export class OpenRouterClient {
           : "The AI output contained missing, unexpected or invalid fields.",
       );
     }
-    if (parsed.data.reason.split(/\s+/u).length > 12)
-      throw new AssessmentOutputError(
-        "reason_word_limit",
-        "The AI reason exceeded the 12-word limit.",
-      );
     if (parsed.data.verdict === "match" ? parsed.data.score === 0 : parsed.data.score !== 0)
       throw new AssessmentOutputError(
         "inconsistent_verdict_score",

@@ -113,7 +113,7 @@ test("assessment requests preserve the selected model, require schema support an
       "score",
       "reason",
     ]);
-    assert.equal(body.response_format.json_schema.schema.properties.reason.maxLength, 80);
+    assert.equal(body.response_format.json_schema.schema.properties.reason.maxLength, undefined);
     assert.ok(body.messages[0].content.endsWith(assessmentResponseInstructions));
     assert.deepEqual(JSON.parse(body.messages[1].content), job);
     return Response.json(completion(JSON.stringify(assessment)));
@@ -270,36 +270,41 @@ test("only explicit key-expired responses are presented as expiry, and upstream 
   });
 });
 
-test("system-managed output requirements stay fixed and invalid reason lengths are rejected", async () => {
-  for (const [reason, accepted] of [
-    ["x".repeat(80), true],
-    ["x".repeat(81), false],
-    [Array(12).fill("fit").join(" "), true],
-    [Array(13).fill("fit").join(" "), false],
-  ] as const) {
-    const request: typeof fetch = async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as {
-        messages: { role: string; content: string }[];
+test("reason length remains prompt guidance and valid assessments preserve longer reasons", async () => {
+  const reasons = [
+    "x".repeat(80),
+    "x".repeat(81),
+    Array(13).fill("fit").join(" "),
+    "The candidate has relevant automation and project delivery experience across distributed technical teams. "
+      .repeat(5)
+      .trim(),
+  ];
+  for (const reason of reasons)
+    for (const verdict of ["match", "not_a_match"] as const) {
+      const expected = { verdict, score: verdict === "match" ? 92 : 0, reason };
+      const request: typeof fetch = async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as {
+          messages: { content: string }[];
+          response_format: {
+            json_schema: { schema: { properties: { reason: { maxLength?: number } } } };
+          };
+        };
+        assert.ok(body.messages[0]!.content.endsWith(assessmentResponseInstructions));
+        assert.ok(body.messages[0]!.content.includes("12 words and 80 characters"));
+        assert.equal(
+          body.response_format.json_schema.schema.properties.reason.maxLength,
+          undefined,
+        );
+        return Response.json(completion(JSON.stringify(expected)));
       };
-      assert.ok(body.messages[0]!.content.startsWith("Assess relevant experience."));
-      assert.ok(body.messages[0]!.content.endsWith(assessmentResponseInstructions));
-      return Response.json(completion(JSON.stringify({ ...assessment, reason })));
-    };
-    const result = new OpenRouterClient("unit-test-key", request).assess(
-      model.id,
-      "Assess relevant experience.",
-      job,
-      new AbortController().signal,
-    );
-    if (accepted) assert.equal((await result).reason, reason);
-    else
-      await assert.rejects(
-        result,
-        (error) =>
-          error instanceof AssessmentOutputError &&
-          error.code === (reason.length > 80 ? "reason_character_limit" : "reason_word_limit"),
+      const result = await new OpenRouterClient("unit-test-key", request).assess(
+        model.id,
+        "Assess relevant experience.",
+        job,
+        new AbortController().signal,
       );
-  }
+      assert.deepEqual(result, expected);
+    }
 });
 
 test("AI diagnostics distinguish failure types without exposing provider content", async () => {

@@ -1540,6 +1540,7 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
   const originalFetch = globalThis.fetch;
   for (const scenario of [
     "match",
+    "long_reason",
     "not_a_match",
     "review",
     "unreadable",
@@ -1555,6 +1556,11 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
       scenario.startsWith("partial") ||
       scenario === "fatal_after_match" ||
       scenario === "existing_match_retry";
+    const publishesMatch = partial || scenario === "match" || scenario === "long_reason";
+    const longReason =
+      "The candidate has relevant operations, automation, and project delivery experience across distributed teams. "
+        .repeat(4)
+        .trim();
     try {
       item.store.savePreferences({
         ...defaultPreferences,
@@ -1635,12 +1641,21 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
                 finish_reason: "stop",
                 message: {
                   content: JSON.stringify({
-                    verdict: partial ? "match" : scenario,
-                    score: partial || scenario === "match" ? 90 : scenario === "review" ? 50 : 0,
-                    reason:
+                    verdict: publishesMatch ? "match" : scenario,
+                    score:
                       scenario === "partial_ai" && second
-                        ? Array(13).fill("fit").join(" ")
-                        : "Evidence-based fit.",
+                        ? null
+                        : publishesMatch
+                          ? 90
+                          : scenario === "review"
+                            ? 50
+                            : 0,
+                    reason:
+                      scenario === "long_reason"
+                        ? longReason
+                        : scenario === "partial_ai" && second
+                          ? Array(13).fill("fit").join(" ")
+                          : "Evidence-based fit.",
                   }),
                 },
               },
@@ -1671,10 +1686,15 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
         item.store.runs()[0]?.status,
         partial ? "warnings" : failed ? "failed" : "completed",
       );
-      assert.equal(item.store.totals().jobs, partial || scenario === "match" ? 1 : 0);
+      assert.equal(item.store.totals().jobs, publishesMatch ? 1 : 0);
       assert.equal(item.store.pending().length, failed || partial ? 1 : 0);
       assert.ok(!("review" in item.store.runs()[0]!));
       const run = item.store.runs()[0]!;
+      if (scenario === "long_reason") {
+        assert.equal(item.store.job(1)!.reason, longReason);
+        assert.equal(run.status, "completed");
+        assert.equal(run.issueCount, 0);
+      }
       if (scenario === "existing_match_retry") {
         assert.equal(run.added, 0);
         assert.equal(run.matches, 0);
@@ -1686,7 +1706,7 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
         assert.equal(issues[0]!.code, "source_http_error");
       }
       if (scenario === "partial_ai") {
-        assert.equal(issues[0]!.code, "reason_word_limit");
+        assert.equal(issues[0]!.code, "invalid_score");
         assert.equal(JSON.stringify(issues).includes("fit fit"), false);
       }
       if (scenario === "fatal_after_match") {
@@ -1712,7 +1732,7 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
         }
       }
       if (failed) assert.match(item.store.runs()[0]!.message, /could not be assessed/);
-      if (scenario === "match" || partial) {
+      if (publishesMatch) {
         assert.equal(item.store.update(1, "applied", ""), true);
         assert.equal(item.store.totals().applications, 1);
       } else {

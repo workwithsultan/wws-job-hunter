@@ -27,7 +27,6 @@ import {
   ListFilter,
   Menu,
   Play,
-  Pencil,
   Search as SearchIcon,
   Settings2,
   ScrollText,
@@ -619,6 +618,33 @@ function JobsPage({
   const [failure, setFailure] = useState("");
   const [loading, setLoading] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const confirm = useConfirm();
+  const interaction = useInteractionState();
+  useActivity(deleting !== null, "write");
+  const remove = async (job: Job) => {
+    if (
+      deleting !== null ||
+      interaction.writing ||
+      !(await confirm({
+        title: "Delete this job?",
+        description: `Permanently delete “${job.title}” and its notes from this workspace?`,
+        action: "Delete job",
+        destructive: true,
+      }))
+    )
+      return;
+    setDeleting(job.id);
+    try {
+      await api("/api/jobs/" + job.id, "DELETE", {});
+      setFailure("");
+      await reload();
+    } catch (error) {
+      setFailure(errorMessage(error));
+    } finally {
+      setDeleting(null);
+    }
+  };
   const q = params.get("q") ?? "";
   const status = params.get("status") ?? "";
   const page = params.get("page") ?? "1";
@@ -869,6 +895,11 @@ function JobsPage({
                     <th scope="col" className="assessment-cell">
                       Score
                     </th>
+                    {!applications && (
+                      <th scope="col" className="verdict-cell">
+                        Verdict
+                      </th>
+                    )}
                     <th scope="col" className="desktop-cell">
                       Source
                     </th>
@@ -911,12 +942,21 @@ function JobsPage({
                           >
                             {matchScoreLabel(job)}
                           </span>
+                          {!applications && job.reason && (
+                            <div className="mobile-verdict">
+                              <span className="verdict-label">Verdict</span>
+                              <p>{job.reason}</p>
+                            </div>
+                          )}
                         </td>
                         <td className="assessment-cell">
                           <span className={"badge assessment-" + (job.assessment ?? "pending")}>
                             {matchScoreLabel(job)}
                           </span>
                         </td>
+                        {!applications && (
+                          <td className="verdict-cell">{job.reason && <p>{job.reason}</p>}</td>
+                        )}
                         <td className="desktop-cell">{sources[job.source]}</td>
                         <td>
                           <div className="job-row-actions">
@@ -926,19 +966,17 @@ function JobsPage({
                               applications={applications}
                               filterStatus={status}
                             />
-                            <Link
-                              className="icon-button ghost job-edit"
-                              aria-label={"Edit notes for " + job.title}
+                            <button
+                              type="button"
+                              className="icon-button ghost danger-text job-delete"
+                              aria-label={"Delete job: " + job.title}
                               data-job-id={job.id}
-                              to={{
-                                search: new URLSearchParams({
-                                  ...Object.fromEntries(params),
-                                  job: String(job.id),
-                                }).toString(),
-                              }}
+                              disabled={deleting !== null || interaction.writing}
+                              aria-busy={deleting === job.id}
+                              onClick={() => void remove(job)}
                             >
-                              <Pencil aria-hidden="true" />
-                            </Link>
+                              <Trash2 aria-hidden="true" />
+                            </button>
                           </div>
                         </td>
                         <td className="desktop-cell">
@@ -1166,7 +1204,7 @@ function JobDetail({ reload }: { reload: () => Promise<void> }) {
       returnFocus={() =>
         requestAnimationFrame(() =>
           requestAnimationFrame(() => {
-            const links = document.querySelectorAll<HTMLAnchorElement>(
+            const links = document.querySelectorAll<HTMLElement>(
               ".page-content:not([hidden]) [data-job-id]",
             );
             const target = [...links].find((link) => link.dataset.jobId === returnJobId.current);
