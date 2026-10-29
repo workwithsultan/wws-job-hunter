@@ -443,7 +443,7 @@ export function useDraftWarning(dirty: boolean) {
 
 interface ChipInputProps extends ControlProps {
   value: string[];
-  onChange: (value: string[]) => void;
+  onChange: (value: string[]) => Promise<boolean>;
   onError: (message: string) => void;
   label: string;
   onEditing: (pending: boolean) => void;
@@ -476,7 +476,7 @@ export function ChipInput({
       }))
     )
       return;
-    onChange([...value, ...values]);
+    if (!(await onChange([...value, ...values]))) return;
     setEntry("");
     onEditing(false);
     if (attributes.id)
@@ -493,7 +493,7 @@ export function ChipInput({
       }))
     )
       return;
-    onChange(value.filter((item) => item !== term));
+    if (!(await onChange(value.filter((item) => item !== term)))) return;
     if (attributes.id)
       requestAnimationFrame(() => document.getElementById(attributes.id!)?.focus());
     onError("");

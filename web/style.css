@@ -1266,13 +1266,6 @@ details summary {
   font-size: 0.875rem;
   line-height: 1.25rem;
 }
-.site-summary {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-}
-.search-usage,
 .quota-summary {
   display: flex;
   align-items: center;
@@ -1950,32 +1943,6 @@ h2 {
   width: 1rem;
   height: 1rem;
 }
-.search-sources {
-  display: block;
-  border: 0;
-  margin: 0;
-  padding: 0;
-}
-.search-sources > summary {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: fit-content;
-  min-height: 2.25rem;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 0.875rem;
-}
-.search-sources > summary::after {
-  content: "+";
-  margin-inline-start: 0.5rem;
-}
-.search-sources[open] > summary::after {
-  content: "−";
-}
-.search-sources[open] > :not(summary) {
-  margin-block-start: 1rem;
-}
 @media (max-width: 767px) {
   .job-row-actions {
     flex-direction: column;
@@ -1988,8 +1955,7 @@ h2 {
 }
 @media (pointer: coarse) {
   .job-status-control .choice-trigger,
-  .resume-name,
-  .search-sources > summary {
+  .resume-name {
     min-height: 2.75rem;
   }
   .resume-name {
@@ -2203,4 +2169,11 @@ h2 {
   .search-form .chip-entry {
     flex-basis: calc(100% - 3.5rem);
   }
+}
+
+.about-sources {
+  margin-block-start: 1.25rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
 }

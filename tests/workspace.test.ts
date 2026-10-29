@@ -37,7 +37,7 @@ import { sourceDomains, defaultPreferences, preferencesSchema } from "../src/sha
 import { discoverJobs, buildQuery, resultMatchesDomain } from "../src/discovery/serpapi.js";
 import { isJobUrl, extractDescription } from "../src/server/extract.js";
 import { searchLocation } from "../src/shared/search-scope.js";
-import { searchChanged, searchValid, profileValid, keywordEntry } from "../web/form-state.js";
+import { keywordEntry } from "../web/form-state.js";
 import { countries } from "../src/shared/countries.js";
 import {
   matchesTitle,
@@ -380,25 +380,46 @@ test("country and work type persist without creating job records", () => {
   }
 });
 
-test("save readiness follows actual changes and rejects incomplete form input", () => {
-  const original = structuredClone(defaultPreferences);
-  assert.equal(searchChanged(original, defaultPreferences), false);
-  assert.equal(searchChanged({ ...original, country: "id" }, original), true);
-  assert.equal(searchChanged({ ...original, workType: "any" }, original), true);
-  assert.equal(
-    searchChanged(
-      { ...original, roles: ["Operations", "Success"] },
-      { ...original, roles: ["Success", "Operations"] },
-    ),
-    false,
-  );
-  assert.equal(searchValid(original, false), false);
-  const configured = { ...original, roles: ["Operations"] };
-  assert.equal(searchValid(configured, false), true);
-  assert.equal(searchValid(configured, true), false);
-  assert.equal(profileValid(""), false);
-  assert.equal(profileValid("Operations experience"), true);
-  assert.equal(profileValid("Operations experience".repeat(1000)), false);
+test("individual search-setting saves preserve the other settings and reject invalid changes", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, resolve("."), 8790);
+  const headers = {
+    host: "127.0.0.1:8790",
+    origin: "http://127.0.0.1:8790",
+    "content-type": "application/json",
+  };
+  let expected = item.store.preferences();
+  try {
+    for (const payload of [
+      { country: "any" },
+      { workType: "hybrid" },
+      { roles: ["Operations"] },
+      { exclusions: ["Intern"] },
+    ]) {
+      const response = await app.inject({
+        method: "PATCH",
+        url: "/api/preferences/search",
+        headers,
+        payload,
+      });
+      assert.equal(response.statusCode, 200);
+      expected = preferencesSchema.parse({ ...expected, ...payload });
+      assert.deepEqual(item.store.preferences(), expected);
+    }
+    const invalid = await app.inject({
+      method: "PATCH",
+      url: "/api/preferences/search",
+      headers,
+      payload: { country: "invalid" },
+    });
+    assert.equal(invalid.statusCode, 400);
+    assert.deepEqual(item.store.preferences(), expected);
+    assert.equal(item.store.totals().jobs, 0);
+    assert.deepEqual(item.store.runs(), []);
+  } finally {
+    await app.close();
+    item.cleanup();
+  }
 });
 
 test("existing preferences retain US remote behavior when upgraded", () => {

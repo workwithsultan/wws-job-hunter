@@ -41,7 +41,6 @@ import {
 import {
   applicationStatuses,
   preferencesSchema,
-  searchPreferenceKeys,
   sources,
   statusLabels,
   visibleJobStatuses,
@@ -53,10 +52,9 @@ import {
 } from "../src/shared/model";
 import { countries } from "../src/shared/countries";
 import { countryName, workTypes } from "../src/shared/search-scope";
-import { searchChanged, searchValid } from "./form-state";
 import { searchBudget } from "../src/shared/budget";
 import { ResumeImport } from "./resume-import";
-import { ProviderSettings, useQuota } from "./providers";
+import { ProviderSettings } from "./providers";
 import { api, ApiError, dateText } from "./api";
 import {
   ActionHint,
@@ -440,44 +438,67 @@ function App() {
       >
         <ol className="about-content">
           <li>
-            <h3>Purpose</h3>
-            <p>Find job opportunities relevant to your resume.</p>
-          </li>
-          <li>
-            <h3>How it works</h3>
+            <h3>The problem</h3>
             <p>
-              Choose your target roles, country and work type. SerpApi finds postings, then AI
-              assesses them against your resume. Confirmed matches appear in Jobs.
+              Job boards can feel like a race: listings may be old, reposted or already attracting
+              heavy interest. Imagine a LinkedIn listing showing hundreds of applicants, only for
+              Apply to send you to the employer's own application page. Displayed interest does not
+              always mean completed applications.
             </p>
           </li>
           <li>
-            <h3>Our approach</h3>
+            <h3>Start closer to the source</h3>
             <p>
-              We prioritize strict relevance. A fit score is an assessment of alignment, not your
-              probability of being hired. Check each posting before applying.
+              Employers manage openings on careers sites and applicant tracking systems (ATS), which
+              can also distribute posts to other job boards. Our philosophy: look at those
+              employer-hosted postings directly, rather than wait to encounter a repost. Earlier
+              discovery is the goal, not a guarantee of fewer applicants.
             </p>
           </li>
           <li>
-            <h3>Your workflow</h3>
+            <h3>How we search</h3>
             <p>
-              Jobs stay visible for 24 hours. When you apply, update the job's status to track it in
-              Applications, where your application and notes remain.
+              Your job titles, country and work type become Google search queries with site filters.
+              SerpApi finds results on Greenhouse, Lever, Ashby, Workable and Workday. We read the
+              original postings, then AI compares them with your resume. Only confirmed matches
+              reach Jobs.
+            </p>
+          </li>
+          <li>
+            <h3>A focused shortlist</h3>
+            <p>
+              Strict matching prioritizes relevance; a score is not a hiring probability. Jobs keeps
+              your shortlist visible for 24 hours. That window is not a verified posting age. Apply
+              on the original site, then track the application and notes in Applications.
             </p>
           </li>
           <li>
             <h3>Data and costs</h3>
             <p>
-              Your resume, jobs and settings are stored locally. Search queries go to SerpApi.
-              Extracted resume text and job descriptions go through OpenRouter to your selected
-              model provider.
-            </p>
-            <p>
-              One search can use multiple SerpApi requests. AI assessments also use provider
-              credits. Your connected providers' limits and charges apply; the quota card estimates
-              how many searches remain.
+              Your data is stored locally. Queries go to SerpApi; extracted resume text and postings
+              go through OpenRouter to your selected AI provider. One search can use multiple
+              requests and AI credits. Provider limits and charges apply.
             </p>
           </li>
         </ol>
+        <p className="about-sources">
+          Learn more:{" "}
+          <a
+            href="https://www.linkedin.com/help/recruiter/answer/a407387"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            LinkedIn application flow
+          </a>{" "}
+          ·{" "}
+          <a
+            href="https://support.greenhouse.io/hc/en-us/articles/4405801275931-Free-job-posts"
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            ATS job distribution
+          </a>
+        </p>
       </Modal>
       {workspace && (
         <Modal
@@ -1221,38 +1242,20 @@ function SearchPage({
   reload: () => Promise<void>;
   active: boolean;
 }) {
-  const [draft, setDraft] = useState(workspace.preferences);
-  const [baseline, setBaseline] = useState(workspace.preferences);
+  const preferences = workspace.preferences;
   const [pending, setPending] = useState({ roles: false, exclusions: false });
-  const hasPending = pending.roles || pending.exclusions;
-  const dirty = searchChanged(draft, baseline) || hasPending;
-  const valid = searchValid(draft, hasPending);
-  const confirm = useConfirm();
-  const interaction = useInteractionState();
-  const [chipVersion, setChipVersion] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [query, setQuery] = useState("");
-  const {
-    quota,
-    failure: quotaError,
-    loading: quotaLoading,
-    load: refreshQuota,
-  } = useQuota(workspace.connections.serpapiKeys, active, workspace.running);
-  const budget = searchBudget(quota, draft);
-  useDraftWarning(dirty);
+  const saving = useRef(false);
+  const confirm = useConfirm();
+  const interaction = useInteractionState();
+  useDraftWarning(pending.roles || pending.exclusions);
   useActivity(busy, "write");
-  useActivity(quotaLoading, "busy");
   useEffect(() => {
-    if (!dirty || (!hasPending && !searchChanged(draft, workspace.preferences))) {
-      if (draft !== workspace.preferences) setDraft(workspace.preferences);
-      setBaseline(workspace.preferences);
-    }
-  }, [workspace.preferences, dirty, hasPending, draft]);
-  useEffect(() => {
-    if (!workspace.preferences.roles.length || !workspace.connections.serpapi) {
+    if (!active || !preferences.roles.length || !workspace.connections.serpapi) {
       setQuery("");
       return;
     }
@@ -1267,78 +1270,71 @@ function SearchPage({
     return () => {
       disposed = true;
     };
-  }, [workspace.preferences, workspace.connections.serpapi]);
-  const change = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
-    setDraft((v) => ({ ...v, [key]: value }));
+  }, [active, preferences, workspace.connections.serpapi]);
+  const change = async <K extends "roles" | "exclusions" | "country" | "workType">(
+    key: K,
+    value: Preferences[K],
+    confirmed = false,
+  ): Promise<boolean> => {
+    if (saving.current || workspace.running || interaction.writing) return false;
     setSaved(false);
-    setErrors((v) => ({ ...v, [key]: "" }));
-  };
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    if (busy || interaction.writing || !dirty) return;
-    const candidate = {
-      ...draft,
-      profile: workspace.preferences.profile,
-      resume: workspace.preferences.resume,
-    };
+    const candidate = { ...preferences, [key]: value };
     const result = preferencesSchema.safeParse(candidate);
-    const fields: Record<string, string> = {};
-    if (!result.success)
-      for (const issue of result.error.issues) fields[String(issue.path[0])] = issue.message;
-    if (!candidate.roles.length) fields.roles = "Add at least one job title.";
-    if ((document.getElementById("search-roles") as HTMLInputElement).value.trim())
-      fields.roles = "Add or clear the typed title before saving.";
-    if ((document.getElementById("search-exclusions") as HTMLInputElement).value.trim())
-      fields.exclusions = "Add or clear the typed keyword before saving.";
-    if (Object.keys(fields).length) {
-      setErrors(fields);
-      document.getElementById("search-" + Object.keys(fields)[0])?.focus();
-      return;
+    if (!result.success || (key === "roles" && !candidate.roles.length)) {
+      const message =
+        !candidate.roles.length && key === "roles"
+          ? "Keep at least one job title."
+          : (result.error?.issues[0]?.message ?? "Check this setting.");
+      setErrors((current) => ({ ...current, [key]: message }));
+      requestAnimationFrame(() => document.getElementById("search-" + key)?.focus());
+      return false;
     }
-    if (
-      !(await confirm({
-        title: "Save search preferences?",
-        emoji: "💾",
-        description: "These settings will be used for future searches.",
-        action: "Save changes",
-        details: [
-          { label: "Job titles", value: candidate.roles.join(", ") },
-          { label: "Excluded keywords", value: candidate.exclusions.join(", ") || "None" },
-          { label: "Country", value: countryName(candidate.country) },
-          { label: "Work type", value: workTypes[candidate.workType] },
-          {
-            label: "Job sites",
-            value: Object.values(sources).join(", "),
-          },
-        ],
-      }))
-    )
-      return;
-    setBusy(true);
-    setFailure("");
+    const labels = {
+      roles: "Job titles",
+      exclusions: "Excluded keywords",
+      country: "Country",
+      workType: "Work type",
+    };
+    const display =
+      key === "country"
+        ? countryName(candidate.country)
+        : key === "workType"
+          ? workTypes[candidate.workType]
+          : (key === "roles" ? candidate.roles : candidate.exclusions).join(", ") || "None";
+    saving.current = true;
     try {
-      await api(
-        "/api/preferences/search",
-        "PATCH",
-        Object.fromEntries(
-          searchPreferenceKeys.map((key) => [key, candidate[key as keyof Preferences]]),
-        ),
-      );
+      if (
+        !confirmed &&
+        !(await confirm({
+          title: "Update " + labels[key].toLowerCase() + "?",
+          description: "This change will be saved for future searches.",
+          action: "Save",
+          details: [{ label: labels[key], value: display }],
+        }))
+      )
+        return false;
+      setBusy(true);
+      setSaved(false);
+      setFailure("");
+      setErrors((current) => ({ ...current, [key]: "" }));
+      await api("/api/preferences/search", "PATCH", { [key]: value });
       await reload();
-      setDraft(candidate);
-      setBaseline(candidate);
       setSaved(true);
+      return true;
     } catch (error) {
       if (error instanceof ApiError && Object.keys(error.fields).length) setErrors(error.fields);
       else setFailure(errorMessage(error));
+      return false;
     } finally {
+      saving.current = false;
       setBusy(false);
+      requestAnimationFrame(() => document.getElementById("search-" + key)?.focus());
     }
   };
   return (
     <>
       {failure && <Alert>{failure}</Alert>}
-      <form onSubmit={(event) => void save(event)} noValidate className="search-form">
+      <form onSubmit={(event) => event.preventDefault()} noValidate className="search-form">
         <fieldset disabled={workspace.running || busy || interaction.writing}>
           <section className="search-section search-keywords">
             <h2>
@@ -1347,27 +1343,27 @@ function SearchPage({
             <div className="keyword-grid">
               <Field id="search-roles" label="Include (required)" error={errors.roles}>
                 <ChipInput
-                  key={"roles-" + chipVersion}
+                  value={preferences.roles}
                   onEditing={(value) => {
-                    setPending((v) => ({ ...v, roles: value }));
-                    setSaved(false);
+                    setPending((current) => ({ ...current, roles: value }));
+                    if (value) setSaved(false);
                   }}
-                  value={draft.roles}
-                  onChange={(value) => change("roles", value)}
-                  onError={(message) => setErrors((v) => ({ ...v, roles: message }))}
+                  onChange={(value) => change("roles", value, true)}
+                  onError={(message) => setErrors((current) => ({ ...current, roles: message }))}
                   label="Job title"
                 />
               </Field>
               <Field id="search-exclusions" label="Exclude (optional)" error={errors.exclusions}>
                 <ChipInput
-                  key={"exclusions-" + chipVersion}
+                  value={preferences.exclusions}
                   onEditing={(value) => {
-                    setPending((v) => ({ ...v, exclusions: value }));
-                    setSaved(false);
+                    setPending((current) => ({ ...current, exclusions: value }));
+                    if (value) setSaved(false);
                   }}
-                  value={draft.exclusions}
-                  onChange={(value) => change("exclusions", value)}
-                  onError={(message) => setErrors((v) => ({ ...v, exclusions: message }))}
+                  onChange={(value) => change("exclusions", value, true)}
+                  onError={(message) =>
+                    setErrors((current) => ({ ...current, exclusions: message }))
+                  }
                   label="Excluded keyword"
                 />
               </Field>
@@ -1380,8 +1376,8 @@ function SearchPage({
             <div className="keyword-grid">
               <Field id="search-country" label="Country (required)" error={errors.country}>
                 <Choice
-                  value={draft.country}
-                  onChange={(value) => change("country", value)}
+                  value={preferences.country}
+                  onChange={(value) => void change("country", value)}
                   label="Country"
                   options={[
                     { value: "any", label: "Any country", emoji: countryEmoji("any") },
@@ -1395,8 +1391,8 @@ function SearchPage({
               </Field>
               <Field id="search-workType" label="Work type (required)" error={errors.workType}>
                 <Choice
-                  value={draft.workType}
-                  onChange={(value) => change("workType", value as Preferences["workType"])}
+                  value={preferences.workType}
+                  onChange={(value) => void change("workType", value as Preferences["workType"])}
                   label="Work type"
                   options={Object.entries(workTypes).map(([value, label]) => ({
                     value,
@@ -1407,72 +1403,25 @@ function SearchPage({
               </Field>
             </div>
           </section>
-          <details className="search-section search-sources">
-            <summary id="source-heading">
-              <Emoji>🔗</Emoji>Job sites · 5 sources
-            </summary>
-            <ul className="site-list" aria-labelledby="source-heading">
+          <section className="search-section search-sources" aria-labelledby="source-heading">
+            <h2 id="source-heading">
+              <Emoji>🔗</Emoji>Job sites
+            </h2>
+            <ul className="site-list">
               {Object.entries(sources).map(([domain, label]) => (
                 <li key={domain}>{label}</li>
               ))}
             </ul>
-            <p className="site-summary">All sites are searched automatically.</p>
-            {budget.remaining !== null && (
-              <div className="search-usage" role="status">
-                <span>
-                  {quotaLoading
-                    ? "Refreshing quota…"
-                    : `${budget.remaining.toLocaleString()} requests remaining`}
-                </span>
-                {budget.searchesPerRun !== null && (
-                  <span>~{budget.searchesPerRun} requests / search</span>
-                )}
-              </div>
-            )}
-          </details>
-          <div className="form-actions">
-            <button className="primary" disabled={busy || !dirty || !valid}>
-              <PendingLabel pending={busy} idle="Save changes" busy="Saving…" />
-            </button>
-            {dirty && !valid && (
-              <ActionHint label="Why Save changes is unavailable">
-                {hasPending
-                  ? "Add or clear the typed keywords before saving."
-                  : !draft.roles.length
-                    ? "Add at least one job title before saving."
-                    : "Complete the required search settings before saving."}
-              </ActionHint>
-            )}
-            {dirty && (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setDraft(workspace.preferences);
-                  setBaseline(workspace.preferences);
-                  setPending({ roles: false, exclusions: false });
-                  setChipVersion((value) => value + 1);
-                  setErrors({});
-                  requestAnimationFrame(() => document.getElementById("search-roles")?.focus());
-                }}
-              >
-                Cancel
-              </button>
-            )}
-            {saved && (
-              <span className="saved" role="status">
-                <Check />
-                Saved
-              </span>
-            )}
-          </div>
+          </section>
+          {busy && <p role="status">Saving…</p>}
+          {saved && (
+            <p className="saved" role="status">
+              <Check aria-hidden="true" />
+              Saved
+            </p>
+          )}
         </fieldset>
       </form>
-      {quotaError && (
-        <Alert retrying={quotaLoading} onRetry={() => void refreshQuota()}>
-          {quotaError}
-        </Alert>
-      )}
       {query && (
         <details className="query-details">
           <summary>Search query</summary>
