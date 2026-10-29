@@ -166,7 +166,11 @@ export class OpenRouterClient {
       return null;
     try {
       const parsed = assessmentSchema.safeParse(JSON.parse(choice.message.content));
-      return parsed.success && parsed.data.reason.split(/\s+/u).length <= 12 ? parsed.data : null;
+      return parsed.success &&
+        parsed.data.reason.split(/\s+/u).length <= 12 &&
+        (parsed.data.verdict === "match" ? parsed.data.score > 0 : parsed.data.score === 0)
+        ? parsed.data
+        : null;
     } catch {
       return null;
     }

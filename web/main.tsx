@@ -602,7 +602,6 @@ function JobsPage({
     : [
         { label: "Saved jobs", value: workspace.totals.jobs, icon: BriefcaseBusiness },
         { label: "Matches", value: workspace.totals.matches, icon: Sparkles },
-        { label: "Needs review", value: workspace.totals.review, icon: CircleDashed },
       ];
   const total = applications ? workspace.totals.applications : workspace.totals.jobs;
   const setupIncomplete = Object.values(missingSetup(workspace)).some(Boolean);
@@ -696,10 +695,11 @@ function JobsPage({
                   .filter(
                     ([key]) =>
                       key !== "new" &&
+                      key !== "review" &&
                       key !== "not_a_fit" &&
                       (applications
                         ? applicationStatuses.includes(key as JobStatus)
-                        : key === "ready" || key === "review"),
+                        : key === "ready"),
                   )
                   .map(([value, label]) => ({ value, label })),
               ]}
@@ -920,9 +920,7 @@ function JobStatusChoice({
       await api("/api/jobs/" + job.id, "PUT", { status, notes: job.notes });
       await reload();
       if (
-        (applications
-          ? !applicationStatuses.includes(status)
-          : status !== "ready" && status !== "review") ||
+        (applications ? !applicationStatuses.includes(status) : status !== "ready") ||
         (filterStatus && filterStatus !== status)
       )
         document.getElementById("main")?.focus({ preventScroll: true });

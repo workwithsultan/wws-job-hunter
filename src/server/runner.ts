@@ -63,7 +63,8 @@ export class Runner {
     credentials: Record<string, string>,
     signal: AbortSignal,
   ): Promise<void> {
-    const counts = { found: 0, added: 0, matches: 0, review: 0 };
+    const counts = { found: 0, added: 0, matches: 0 };
+    let unassessed = 0;
     let stage = "connections";
     try {
       this.store.progress(id, counts, "Checking provider accounts…");
@@ -126,18 +127,7 @@ export class Runner {
           description = await extractDescription(job.url, signal);
         } catch {
           signal.throwIfAborted();
-          if (
-            this.store.assess(job.id, {
-              description: "",
-              assessment: "review",
-              score: null,
-              reason: "The full description could not be read. Review the original posting.",
-              status: "review",
-            })
-          ) {
-            counts.review++;
-            counts.added++;
-          }
+          unassessed++;
           continue;
         }
         const result = await client.assess(
@@ -147,50 +137,27 @@ export class Runner {
           signal,
         );
         if (!result) {
-          if (
-            this.store.assess(job.id, {
-              description,
-              assessment: "review",
-              score: null,
-              reason: "The AI did not return a usable assessment. Review the original posting.",
-              status: "review",
-            })
-          ) {
-            counts.review++;
-            counts.added++;
-          }
+          unassessed++;
           continue;
         }
         const changed = this.store.assess(job.id, {
           description,
-          assessment:
-            result.verdict === "match" && result.score === null ? "review" : result.verdict,
+          assessment: result.verdict,
           score: result.score,
-          reason:
-            result.verdict === "match" && result.score === null
-              ? "The assessment did not include a match score. Review the original posting."
-              : result.reason,
-          status: assessmentStatus(
-            result.verdict === "match" && result.score === null ? "review" : result.verdict,
-          ),
+          reason: result.reason,
+          status: assessmentStatus(result.verdict),
         });
-        if (changed && result.verdict !== "not_a_match") counts.added++;
-        if (changed && result.verdict === "match" && result.score !== null) counts.matches++;
-        if (
-          changed &&
-          (result.verdict === "review" || (result.verdict === "match" && result.score === null))
-        )
-          counts.review++;
+        if (changed && result.verdict === "match") {
+          counts.added++;
+          counts.matches++;
+        }
       }
       signal.throwIfAborted();
-      this.store.progress(id, counts, "Search complete.");
-      this.store.finishRun(
-        id,
-        "completed",
-        counts.review
-          ? `${counts.review} job descriptions need manual review.`
-          : "Search complete.",
-      );
+      const message = unassessed
+        ? `${unassessed} postings could not be assessed. Only confirmed matches are shown. Unassessed postings remain pending for a retry.`
+        : "Search complete.";
+      this.store.progress(id, counts, message);
+      this.store.finishRun(id, unassessed ? "failed" : "completed", message);
     } catch (error) {
       this.store.progress(id, counts, "Search stopped.");
       if (signal.aborted) {

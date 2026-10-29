@@ -114,7 +114,13 @@ export function buildApp(
   app.get("/api/jobs/:id", async (request, reply) => {
     const { id } = z.object({ id: z.coerce.number().int().positive() }).parse(request.params);
     const job = store.job(id);
-    return job && (job.assessment === "match" || job.assessment === "review")
+    return job &&
+      job.assessment === "match" &&
+      job.score !== null &&
+      job.score > 0 &&
+      job.score <= 100 &&
+      Number.isInteger(job.score) &&
+      job.status !== "review"
       ? job
       : reply.code(404).send({ error: "This job is no longer in your workspace." });
   });

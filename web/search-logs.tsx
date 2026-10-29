@@ -142,10 +142,7 @@ export function SearchLogs({
                       <span>
                         {run.added.toLocaleString()} added · {run.matches.toLocaleString()} matches
                       </span>
-                      <span className="log-meta">
-                        {run.found.toLocaleString()} found · {run.review.toLocaleString()} need
-                        review
-                      </span>
+                      <span className="log-meta">{run.found.toLocaleString()} found</span>
                     </td>
                     <td className="log-message">{run.message}</td>
                   </tr>

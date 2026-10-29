@@ -17,23 +17,33 @@ import {
 type InsertJob = Pick<
   Job,
   "title" | "url" | "source" | "snippet" | "description" | "assessment" | "reason" | "status"
->;
+> & { score?: number | null };
 const previousDefaultWithQueryGuidance = previousDefaultAssessmentPrompt.replace(
   "Distinguish required qualifications from preferred ones.",
   "Distinguish required qualifications from preferred ones. Title keywords need not match an exact phrase.",
 );
+const previousResponseInstructions =
+  'Return raw JSON: {"verdict":"match|not_a_match|review","score":0–100 or null,"reason":"brief factual reason"}. Keep reason within 12 words and 80 characters.';
 const previousDefaultAssessmentPrompts = new Set([
   previousDefaultAssessmentPrompt,
-  previousDefaultAssessmentPrompt + "\n\n" + assessmentResponseInstructions,
   previousDefaultWithQueryGuidance,
-  defaultPreferences.assessmentPrompt + "\n\n" + assessmentResponseInstructions,
-  previousDefaultWithQueryGuidance + "\n\n" + assessmentResponseInstructions,
+  ...[
+    previousDefaultAssessmentPrompt,
+    previousDefaultWithQueryGuidance,
+    defaultPreferences.assessmentPrompt,
+  ].flatMap((prompt) =>
+    [assessmentResponseInstructions, previousResponseInstructions].map(
+      (output) => prompt + "\n\n" + output,
+    ),
+  ),
 ]);
 const opportunityWindowMs = 24 * 60 * 60 * 1000;
-const visibleAssessment = "assessment IN ('match','review')";
-const queueStatus = "status IN ('ready','review')";
+const visibleAssessment =
+  "assessment='match' AND score BETWEEN 1 AND 100 AND typeof(score)='integer' AND status<>'review'";
+const queueStatus = "status='ready'";
 const applicationStatus =
   "status IN ('applied','interviewing','offer','accepted','rejected','withdrawn')";
+const runColumns = "id,startedAt,finishedAt,status,found,added,matches,message,trigger";
 const activeOpportunity = `${visibleAssessment} AND ${queueStatus} AND julianday(opportunityAt)>julianday(?)`;
 
 export class Store {
@@ -185,14 +195,11 @@ export class Store {
     }[];
     const count = (statuses: readonly JobStatus[]) =>
       rows.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row.count, 0);
-    const queue = rows.filter((row) => row.status === "ready" || row.status === "review");
+    const queue = rows.filter((row) => row.status === "ready");
     return {
-      jobs: count(["ready", "review"]),
+      jobs: count(["ready"]),
       matches: queue
         .filter((row) => row.assessment === "match")
-        .reduce((sum, row) => sum + row.count, 0),
-      review: queue
-        .filter((row) => row.assessment === "review")
         .reduce((sum, row) => sum + row.count, 0),
       applications: count(applicationStatuses),
       interviewing: count(["interviewing"]),
@@ -200,7 +207,7 @@ export class Store {
     };
   }
   list(query: { q: string; status: string; applications: boolean; page: number }): JobList {
-    const clauses: string[] = ["assessment IN ('match','review')"];
+    const clauses: string[] = [visibleAssessment];
     const values: (string | number)[] = [];
     if (query.applications) clauses.push(applicationStatus);
     else {
@@ -248,12 +255,13 @@ export class Store {
     return (
       this.db
         .prepare(
-          "INSERT OR IGNORE INTO jobs(title,url,source,snippet,description,assessment,reason,status,opportunityAt,createdAt,updatedAt) VALUES(@title,@url,@source,@snippet,@description,@assessment,@reason,@status,@opportunityAt,@now,@now)",
+          "INSERT OR IGNORE INTO jobs(title,url,source,snippet,description,assessment,score,reason,status,opportunityAt,createdAt,updatedAt) VALUES(@title,@url,@source,@snippet,@description,@assessment,@score,@reason,@status,@opportunityAt,@now,@now)",
         )
         .run({
           ...job,
+          score: job.score ?? null,
           now,
-          opportunityAt: job.assessment === "match" || job.assessment === "review" ? now : null,
+          opportunityAt: job.assessment === "match" ? now : null,
         }).changes === 1
     );
   }
@@ -264,19 +272,34 @@ export class Store {
     id: number,
     value: Pick<Job, "description" | "assessment" | "score" | "reason" | "status">,
   ): boolean {
+    if (value.assessment !== "match" && value.assessment !== "not_a_match") return false;
+    if (
+      value.score === null ||
+      !Number.isInteger(value.score) ||
+      value.score < 0 ||
+      value.score > 100
+    )
+      return false;
+    if (
+      value.assessment === "match"
+        ? value.score === 0 || value.status !== "ready"
+        : value.score !== 0 || value.status !== "not_a_fit"
+    )
+      return false;
     return (
       this.db
         .prepare(
-          "UPDATE jobs SET description=@description,assessment=@assessment,score=@score,reason=@reason,status=@status,opportunityAt=CASE WHEN @assessment IN ('match','review') THEN @now ELSE NULL END,updatedAt=@now WHERE id=@id AND status='new'",
+          "UPDATE jobs SET description=@description,assessment=@assessment,score=@score,reason=@reason,status=@status,opportunityAt=CASE WHEN @assessment='match' AND @score BETWEEN 1 AND 100 THEN @now ELSE NULL END,updatedAt=@now WHERE id=@id AND status='new'",
         )
         .run({ ...value, id, now: this.now().toISOString() }).changes === 1
     );
   }
   update(id: number, status: JobStatus, notes: string): boolean {
+    if (status === "review") return false;
     return (
       this.db
         .prepare(
-          `UPDATE jobs SET opportunityAt=CASE WHEN @status IN ('ready','review') AND status NOT IN ('ready','review') THEN @now ELSE opportunityAt END,status=@status,notes=@notes,updatedAt=@now WHERE id=@id`,
+          `UPDATE jobs SET opportunityAt=CASE WHEN @status='ready' AND status<>'ready' THEN @now ELSE opportunityAt END,status=@status,notes=@notes,updatedAt=@now WHERE id=@id AND ${visibleAssessment}`,
         )
         .run({ id, status, notes, now: this.now().toISOString() }).changes === 1
     );
@@ -300,7 +323,9 @@ export class Store {
           .all(this.opportunityCutoff()) as Job[]);
   }
   runs(): SearchRun[] {
-    return this.db.prepare("SELECT * FROM runs ORDER BY id DESC LIMIT 50").all() as SearchRun[];
+    return this.db
+      .prepare(`SELECT ${runColumns} FROM runs ORDER BY id DESC LIMIT 50`)
+      .all() as SearchRun[];
   }
   listRuns(query: { page: number; status?: SearchRun["status"] | undefined }): RunList {
     const where = query.status ? " WHERE status=?" : "";
@@ -313,7 +338,7 @@ export class Store {
     const pages = Math.max(1, Math.ceil(total / 25));
     const page = Math.min(query.page, pages);
     const runs = this.db
-      .prepare("SELECT * FROM runs" + where + " ORDER BY id DESC LIMIT 25 OFFSET ?")
+      .prepare(`SELECT ${runColumns} FROM runs` + where + " ORDER BY id DESC LIMIT 25 OFFSET ?")
       .all(...values, (page - 1) * 25) as SearchRun[];
     return { runs, total, page, pages };
   }
@@ -328,12 +353,12 @@ export class Store {
   }
   progress(
     id: number,
-    counts: { found: number; added: number; matches: number; review: number },
+    counts: { found: number; added: number; matches: number },
     message: string,
   ): void {
     this.db
       .prepare(
-        "UPDATE runs SET found=@found,added=@added,matches=@matches,review=@review,message=@message WHERE id=@id",
+        "UPDATE runs SET found=@found,added=@added,matches=@matches,message=@message WHERE id=@id",
       )
       .run({ ...counts, id, message });
   }

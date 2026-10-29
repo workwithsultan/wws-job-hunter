@@ -1,29 +1,29 @@
 import { z } from "zod";
 export const assessmentResponseInstructions =
-  'Return raw JSON: {"verdict":"match|not_a_match|review","score":0–100 or null,"reason":"brief factual reason"}. Keep reason within 12 words and 80 characters.';
+  'Return raw JSON: {"verdict":"match|not_a_match","score":0–100,"reason":"brief factual reason"}. Return match only for a confirmed fit with a score above 0; otherwise return not_a_match with score 0. Keep reason within 12 words and 80 characters.';
 export const assessmentLabels = {
   match: "Match",
   not_a_match: "Not a match",
-  review: "Needs review",
 } as const;
-export type Assessment = keyof typeof assessmentLabels;
+// Legacy review records remain readable in storage but are never visible or generated.
+export type Assessment = keyof typeof assessmentLabels | "review";
 export const assessmentSchema = z
   .object({
-    verdict: z.enum(["match", "not_a_match", "review"]),
-    score: z.number().int().min(0).max(100).nullable(),
+    verdict: z.enum(["match", "not_a_match"]),
+    score: z.number().int().min(0).max(100),
     reason: z.string().trim().min(1).max(80),
   })
   .strict();
 export function assessmentLabel(value: Assessment | null): string {
-  return value === null ? "Not assessed" : assessmentLabels[value];
+  return value === null || value === "review" ? "Not assessed" : assessmentLabels[value];
 }
-export function assessmentStatus(value: Assessment): "ready" | "not_a_fit" | "review" {
-  return value === "match" ? "ready" : value === "not_a_match" ? "not_a_fit" : "review";
+export function assessmentStatus(value: "match" | "not_a_match"): "ready" | "not_a_fit" {
+  return value === "match" ? "ready" : "not_a_fit";
 }
 
 export function matchScoreLabel(job: {
   assessment: Assessment | null;
   score: number | null;
 }): string {
-  return job.assessment === "match" && job.score !== null ? `${job.score}%` : "Needs review";
+  return job.assessment === "match" && job.score !== null ? `${job.score}%` : "Not assessed";
 }

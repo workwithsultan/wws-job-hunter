@@ -636,7 +636,6 @@ tbody tr:last-child td {
 .run-completed {
   color: var(--success);
 }
-.status-review,
 .run-interrupted {
   color: var(--warning);
 }
@@ -1422,9 +1421,6 @@ details summary {
 .assessment-match {
   color: var(--success);
 }
-.assessment-review {
-  color: var(--warning);
-}
 
 .emoji {
   display: inline-flex;
@@ -1522,6 +1518,7 @@ h2 {
   min-width: 0;
 }
 .jobs-layout .stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding-block-end: 1rem;
 }
 .job-quota {
@@ -1848,10 +1845,6 @@ h2 {
 .status-ready {
   --status-bg: #d8e8ff;
   --status-fg: #1e3a5f;
-}
-.status-review {
-  --status-bg: #fce8a0;
-  --status-fg: #643c0b;
 }
 .status-applied {
   --status-bg: #d8edd1;

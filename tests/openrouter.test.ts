@@ -98,6 +98,11 @@ test("assessment requests preserve the selected model, require schema support an
     assert.equal(body.response_format.type, "json_schema");
     assert.equal(body.response_format.json_schema.strict, true);
     assert.equal(body.response_format.json_schema.schema.additionalProperties, false);
+    assert.deepEqual(body.response_format.json_schema.schema.properties.verdict.enum, [
+      "match",
+      "not_a_match",
+    ]);
+    assert.ok(!body.messages[0].content.includes("not_a_match|review"));
     assert.deepEqual(body.response_format.json_schema.schema.required, [
       "verdict",
       "score",
@@ -123,6 +128,10 @@ test("assessment requests preserve the selected model, require schema support an
 test("malformed, out-of-range, refused and truncated assessments never become a false match", async () => {
   for (const payload of [
     completion("not JSON"),
+    completion(JSON.stringify({ ...assessment, verdict: "review" })),
+    completion(JSON.stringify({ ...assessment, score: null })),
+    completion(JSON.stringify({ ...assessment, score: 0 })),
+    completion(JSON.stringify({ ...assessment, verdict: "not_a_match", score: 50 })),
     completion(JSON.stringify({ ...assessment, score: 101 })),
     completion(JSON.stringify({ verdict: "match", reason: "Missing score" })),
     completion(JSON.stringify(assessment), "length"),

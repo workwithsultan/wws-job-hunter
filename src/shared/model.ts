@@ -6,7 +6,7 @@ import { countrySchema, workTypeSchema, defaultSearchScope } from "./search-scop
 export const statusLabels = {
   new: "New",
   ready: "Need to apply",
-  review: "Needs review",
+  review: "Not qualified", // Legacy storage label; excluded from all active status choices.
   not_a_fit: "Not a fit",
   applied: "Applied",
   interviewing: "Interviewed",
@@ -37,7 +37,7 @@ export const applicationStatuses: readonly JobStatus[] = [
   "withdrawn",
 ];
 export const visibleJobStatuses = Object.entries(statusLabels)
-  .filter(([key]) => key !== "new" && key !== "not_a_fit")
+  .filter(([key]) => key !== "new" && key !== "not_a_fit" && key !== "review")
   .map(([value, label]) => ({ value, label }));
 export const sources = {
   "boards.greenhouse.io": "Greenhouse",
@@ -127,7 +127,6 @@ export interface SearchRun {
   found: number;
   added: number;
   matches: number;
-  review: number;
   message: string;
   // Retain the origin of historical runs; new runs are always manual.
   trigger: "manual" | "schedule";
@@ -179,7 +178,6 @@ export interface Workspace {
   totals: {
     jobs: number;
     matches: number;
-    review: number;
     applications: number;
     interviewing: number;
     offers: number;
@@ -192,7 +190,10 @@ export interface JobList {
   pages: number;
 }
 export const jobUpdateSchema = z
-  .object({ status: statusSchema.exclude(["new", "not_a_fit"]), notes: z.string().max(12000) })
+  .object({
+    status: statusSchema.exclude(["new", "not_a_fit", "review"]),
+    notes: z.string().max(12000),
+  })
   .strict();
 export const providerKeySchema = z
   .object({

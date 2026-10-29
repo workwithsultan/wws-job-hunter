@@ -73,7 +73,6 @@ test("a new installation starts without jobs, runs, profile data, or provider ke
     assert.deepEqual(item.store.totals(), {
       jobs: 0,
       matches: 0,
-      review: 0,
       applications: 0,
       interviewing: 0,
       offers: 0,
@@ -487,19 +486,23 @@ test("resume metadata accepts only a PDF filename and bounded page count", () =>
 
 test("match decisions validate bounded percentage scores without inventing missing scores", () => {
   assert.equal(matchScoreLabel({ assessment: "match", score: 92 }), "92%");
-  assert.equal(matchScoreLabel({ assessment: "match", score: null }), "Needs review");
-  assert.equal(matchScoreLabel({ assessment: "review", score: 55 }), "Needs review");
+  assert.equal(matchScoreLabel({ assessment: "match", score: null }), "Not assessed");
+  assert.equal(matchScoreLabel({ assessment: "review", score: 55 }), "Not assessed");
   assert.equal(assessmentLabel("match"), "Match");
   assert.equal(assessmentStatus("match"), "ready");
   assert.equal(assessmentStatus("not_a_match"), "not_a_fit");
-  assert.equal(assessmentStatus("review"), "review");
-  for (const score of [0, 100, null])
+  assert.equal(
+    assessmentSchema.safeParse({ verdict: "review", score: 55, reason: "Unclear eligibility" })
+      .success,
+    false,
+  );
+  for (const score of [0, 100])
     assert.equal(
       assessmentSchema.safeParse({ verdict: "match", score, reason: "Supported evidence." })
         .success,
       true,
     );
-  for (const score of [-1, 101, 5.5, "90"])
+  for (const score of [-1, 101, 5.5, "90", null])
     assert.equal(
       assessmentSchema.safeParse({ verdict: "match", score, reason: "Supported evidence." })
         .success,
@@ -536,11 +539,11 @@ test("schema upgrade retains existing numeric scores and keeps assessment and ap
     );
     db.close();
     const store = new Store(path);
-    assert.equal(store.allJobs().length, 1);
+    assert.equal(store.allJobs().length, 0);
     assert.equal(store.job(1)?.score, 88);
     assert.equal(store.job(1)?.status, "applied");
     assert.equal(store.job(1)?.notes, "Keep the original note.");
-    assert.equal(store.list({ q: "", status: "", applications: true, page: 1 }).total, 1);
+    assert.equal(store.list({ q: "", status: "", applications: true, page: 1 }).total, 0);
     assert.equal(store.totals().matches, 0);
     store.close();
     const check = new Database(path);
@@ -722,7 +725,7 @@ test("search durations remain readable for short and long runs", () => {
   );
 });
 
-test("only assessed matches and review jobs appear in lists, totals, details and CSV", async () => {
+test("only confirmed scored matches appear in lists, totals, details and CSV", async () => {
   const item = installation();
   const app = buildApp(item.store, item.config, item.runner, item.directory, 8790);
   try {
@@ -738,32 +741,31 @@ test("only assessed matches and review jobs appear in lists, totals, details and
         ...base,
         url: `https://jobs.lever.co/example/${index}`,
         assessment: assessment as "match" | "review" | "not_a_match" | null,
-        status: "new",
+        status: assessment === "review" ? "review" : "new",
       });
-      if (assessment)
+      if (assessment && assessment !== "review")
         item.store.assess(index + 1, {
           description: "Operations role",
           assessment: assessment as "match" | "review" | "not_a_match",
-          score: assessment === "match" ? 91 : null,
+          score: assessment === "match" ? 91 : 0,
           reason: "Evidence",
-          status:
-            assessment === "match" ? "ready" : assessment === "review" ? "review" : "not_a_fit",
+          status: assessment === "match" ? "ready" : "not_a_fit",
         });
     }
     const query = { q: "", status: "", applications: false, page: 1 };
-    assert.equal(item.store.list(query).total, 2);
-    assert.equal(item.store.totals().jobs, 2);
+    assert.equal(item.store.list(query).total, 1);
+    assert.equal(item.store.totals().jobs, 1);
     assert.equal(item.store.has("https://jobs.lever.co/example/2"), true);
     assert.equal(item.store.pending().length, 1);
     item.store.update(1, "applied", "Keep this note.");
     assert.equal(item.store.list({ ...query, applications: true }).total, 1);
     const headers = { host: "127.0.0.1:8790" };
-    for (const id of [3, 4])
+    for (const id of [2, 3, 4])
       assert.equal((await app.inject({ url: "/api/jobs/" + id, headers })).statusCode, 404);
     const csv = await app.inject({ url: "/api/export", headers });
-    assert.equal(csv.body.split("\r\n").length, 3);
+    assert.equal(csv.body.split("\r\n").length, 2);
     assert.match(csv.body, /Score \(%\)/);
-    assert.doesNotMatch(csv.body, /example\/2|example\/3/);
+    assert.doesNotMatch(csv.body, /example\/1|example\/2|example\/3/);
     const reopened = new Store(join(item.directory, "workspace.sqlite"));
     assert.equal(reopened.job(1)?.score, 91);
     assert.equal(reopened.job(1)?.notes, "Keep this note.");
@@ -859,7 +861,6 @@ test("Jobs and Applications partition records by workflow status and preserve da
     const query = { q: "", status: "", page: 1 };
     for (const status of [
       "ready",
-      "review",
       "applied",
       "interviewing",
       "offer",
@@ -869,7 +870,7 @@ test("Jobs and Applications partition records by workflow status and preserve da
       "ready",
     ] as const) {
       item.store.update(1, status, "Retain this note.");
-      const inJobs = status === "ready" || status === "review";
+      const inJobs = status === "ready";
       assert.equal(item.store.list({ ...query, applications: false }).total, inJobs ? 1 : 0);
       assert.equal(item.store.list({ ...query, applications: true }).total, inJobs ? 0 : 1);
       assert.equal(item.store.totals().jobs, inJobs ? 1 : 0);
@@ -1017,6 +1018,7 @@ test("the rolling opportunity window expires at exactly 24 hours across lists, c
       snippet: "",
       description: "",
       assessment: "match" as const,
+      score: 90,
       reason: "Relevant experience",
       status: "ready" as const,
     };
@@ -1032,8 +1034,6 @@ test("the rolling opportunity window expires at exactly 24 hours across lists, c
       ...entry,
       title: "Current opportunity",
       url: entry.url + "-current",
-      assessment: "review",
-      status: "review",
     });
     instant = Date.parse("2026-10-29T23:59:59.999Z");
     assert.equal(item.store.list({ q: "", status: "", applications: false, page: 1 }).total, 2);
@@ -1051,8 +1051,7 @@ test("the rolling opportunity window expires at exactly 24 hours across lists, c
     );
     assert.deepEqual(item.store.totals(), {
       jobs: 1,
-      matches: 0,
-      review: 1,
+      matches: 1,
       applications: 1,
       interviewing: 0,
       offers: 0,
@@ -1113,7 +1112,7 @@ test("notes and queue edits do not renew opportunities, while returning an appli
     const entered = item.store.job(id)!.opportunityAt;
     assert.equal(entered, "2026-10-29T01:00:00.000Z");
     instant += 23 * 60 * 60 * 1000;
-    item.store.update(id, "review", "Keep these notes");
+    item.store.update(id, "ready", "Keep these notes");
     assert.equal(item.store.job(id)!.opportunityAt, entered);
     instant += 60 * 60 * 1000;
     assert.equal(item.store.list({ q: "", status: "", applications: false, page: 1 }).total, 0);
@@ -1143,6 +1142,7 @@ test("upgrading a version-four database preserves original opportunity age inste
       source: "jobs.lever.co" as const,
       snippet: "",
       description: "",
+      score: 90,
       assessment: "match",
       reason: "Relevant experience",
       status: "ready",
@@ -1420,15 +1420,198 @@ test("upgrading the former built-in prompt removes query guidance without changi
 test("saved built-in prompts migrate their output instructions out of the editable text", () => {
   const item = installation();
   try {
-    item.store.savePreferences({
-      ...defaultPreferences,
-      assessmentPrompt: defaultAssessmentPrompt + "\n\n" + assessmentResponseInstructions,
-    });
-    const migrated = new Store(join(item.directory, "workspace.sqlite"));
-    assert.equal(migrated.preferences().assessmentPrompt, defaultAssessmentPrompt);
-    assert.ok(!migrated.preferences().assessmentPrompt.includes("Return raw JSON:"));
-    migrated.close();
+    const previousOutput =
+      'Return raw JSON: {"verdict":"match|not_a_match|review","score":0–100 or null,"reason":"brief factual reason"}. Keep reason within 12 words and 80 characters.';
+    for (const output of [assessmentResponseInstructions, previousOutput]) {
+      item.store.savePreferences({
+        ...defaultPreferences,
+        assessmentPrompt: defaultAssessmentPrompt + "\n\n" + output,
+      });
+      const migrated = new Store(join(item.directory, "workspace.sqlite"));
+      assert.equal(migrated.preferences().assessmentPrompt, defaultAssessmentPrompt);
+      assert.ok(!migrated.preferences().assessmentPrompt.includes("Return raw JSON:"));
+      migrated.close();
+    }
   } finally {
     item.cleanup();
+  }
+});
+
+test("legacy review records cannot enter either workspace through lists, details, exports or status changes", async () => {
+  const item = installation();
+  const app = buildApp(item.store, item.config, item.runner, resolve("."), 8790);
+  const headers = {
+    host: "127.0.0.1:8790",
+    origin: "http://127.0.0.1:8790",
+    "content-type": "application/json",
+  };
+  try {
+    for (const status of [
+      "review",
+      "applied",
+      "interviewing",
+      "offer",
+      "accepted",
+      "rejected",
+      "withdrawn",
+    ] as const) {
+      item.store.insert({
+        title: "Legacy review " + status,
+        url: "https://jobs.lever.co/company/" + status,
+        source: "jobs.lever.co",
+        snippet: "",
+        description: "",
+        assessment: "review",
+        score: 55,
+        reason: "Eligibility unclear",
+        status,
+      });
+    }
+    const db = new Database(join(item.directory, "workspace.sqlite"));
+    const ids = (db.prepare("SELECT id FROM jobs").all() as { id: number }[]).map((row) => row.id);
+    db.close();
+    for (const id of ids) {
+      assert.equal((await app.inject({ url: "/api/jobs/" + id, headers })).statusCode, 404);
+      assert.equal(
+        (
+          await app.inject({
+            method: "PUT",
+            url: "/api/jobs/" + id,
+            headers,
+            payload: { status: "applied", notes: "" },
+          })
+        ).statusCode,
+        404,
+      );
+      assert.equal(
+        (
+          await app.inject({
+            method: "PUT",
+            url: "/api/jobs/" + id,
+            headers,
+            payload: { status: "review", notes: "" },
+          })
+        ).statusCode,
+        400,
+      );
+      assert.equal(item.store.job(id)?.assessment, "review");
+    }
+    for (const applications of [false, true]) {
+      assert.equal(item.store.list({ q: "", status: "", applications, page: 1 }).total, 0);
+      const csv = await app.inject({ url: "/api/export?applications=" + applications, headers });
+      assert.doesNotMatch(csv.body, /Legacy review/);
+    }
+    assert.equal(item.store.totals().jobs, 0);
+    assert.equal(item.store.totals().applications, 0);
+    assert.ok(!("review" in item.store.totals()));
+    assert.equal(item.store.nextOpportunityExpiry(), null);
+  } finally {
+    await app.close();
+    item.cleanup();
+  }
+});
+
+test("the real runner only publishes confirmed matches and leaves assessment failures hidden for retry", async () => {
+  const originalFetch = globalThis.fetch;
+  for (const scenario of ["match", "not_a_match", "review", "unreadable"] as const) {
+    const item = installation();
+    let runner: Runner | undefined;
+    try {
+      item.store.savePreferences({
+        ...defaultPreferences,
+        profile: "Operations and workflow experience.",
+        roles: ["Operations"],
+      });
+      item.config.update({
+        OPENROUTER_API_KEY: "unit-test-router-key",
+        OPENROUTER_MODEL: "vendor/assessment",
+        SERPAPI_API_KEYS: "unit-test-serp-key",
+      });
+      globalThis.fetch = async (input) => {
+        const url = new URL(String(input));
+        if (url.href === "https://openrouter.ai/api/v1/key") return Response.json({ data: {} });
+        if (url.href === "https://openrouter.ai/api/v1/models/user")
+          return Response.json({
+            data: [
+              {
+                id: "vendor/assessment",
+                architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+                supported_parameters: ["structured_outputs", "response_format"],
+              },
+            ],
+          });
+        if (url.origin === "https://serpapi.com" && url.pathname === "/account.json")
+          return Response.json({
+            account_id: "unit-test-account",
+            plan_name: "Verification",
+            total_searches_left: 5,
+            searches_per_month: 5,
+            plan_renewal_date: "2099-01-01",
+          });
+        if (url.origin === "https://serpapi.com" && url.pathname === "/search.json")
+          return Response.json({
+            search_metadata: { status: "Success" },
+            search_information: {
+              total_results: url.searchParams.get("as_sitesearch") === "jobs.lever.co" ? 1 : 0,
+            },
+            organic_results:
+              url.searchParams.get("as_sitesearch") === "jobs.lever.co"
+                ? [
+                    {
+                      title: "Operations Manager",
+                      link: "https://jobs.lever.co/company/operations",
+                      snippet: "Operations experience",
+                    },
+                  ]
+                : [],
+          });
+        if (url.href === "https://jobs.lever.co/company/operations")
+          return scenario === "unreadable"
+            ? new Response("", { status: 403 })
+            : new Response(
+                "<main>" + "Operations workflow experience required. ".repeat(12) + "</main>",
+                { headers: { "content-type": "text/html" } },
+              );
+        if (url.href === "https://openrouter.ai/api/v1/chat/completions")
+          return Response.json({
+            choices: [
+              {
+                finish_reason: "stop",
+                message: {
+                  content: JSON.stringify({
+                    verdict: scenario,
+                    score: scenario === "match" ? 90 : scenario === "review" ? 50 : 0,
+                    reason: "Evidence-based fit.",
+                  }),
+                },
+              },
+            ],
+          });
+        throw new Error("Unexpected test transport route.");
+      };
+      runner = new Runner(item.store, item.config);
+      runner.start();
+      for (let i = 0; runner.running && i < 200; i++)
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      assert.equal(runner.running, false);
+      const failed = scenario === "review" || scenario === "unreadable";
+      assert.equal(item.store.runs()[0]?.status, failed ? "failed" : "completed");
+      assert.equal(item.store.totals().jobs, scenario === "match" ? 1 : 0);
+      assert.equal(item.store.pending().length, failed ? 1 : 0);
+      assert.ok(!("review" in item.store.runs()[0]!));
+      if (failed) assert.match(item.store.runs()[0]!.message, /could not be assessed/);
+      if (scenario === "match") {
+        assert.equal(item.store.update(1, "applied", ""), true);
+        assert.equal(item.store.totals().applications, 1);
+      } else {
+        assert.equal(item.store.update(1, "applied", ""), false);
+        assert.equal(item.store.totals().applications, 0);
+      }
+      assert.equal(item.store.update(1, "review", ""), false);
+    } finally {
+      if (runner?.running) await runner.stop();
+      globalThis.fetch = originalFetch;
+      item.cleanup();
+    }
   }
 });

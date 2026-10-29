@@ -81,7 +81,6 @@ export function SearchProgress({
               ["Found", run.found],
               ["Added", run.added],
               ["Matches", run.matches],
-              ["Needs review", run.review],
             ].map(([label, count]) => (
               <div key={label}>
                 <dt>{label}</dt>
