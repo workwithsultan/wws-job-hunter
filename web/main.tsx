@@ -32,6 +32,10 @@ import {
   Settings2,
   ScrollText,
   Handshake,
+  Info,
+  Monitor,
+  Sun,
+  Moon,
   Trash2,
 } from "lucide-react";
 import {
@@ -99,6 +103,8 @@ function App() {
   const [version, setVersion] = useState(0);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [theme, setTheme] = useState(storedTheme);
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const aboutTrigger = useRef<HTMLButtonElement | null>(null);
   const [starting, setStarting] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
@@ -252,6 +258,32 @@ function App() {
       observer.disconnect();
     };
   }, [location.pathname, location.hash]);
+  const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
+  const utilityControls = (
+    <div className="utility-controls">
+      <button
+        type="button"
+        className="ghost about-button"
+        onClick={(event) => {
+          aboutTrigger.current = event.currentTarget;
+          setAboutOpen(true);
+        }}
+      >
+        <Info aria-hidden="true" /> About
+      </button>
+      <Choice
+        value={theme}
+        onChange={appearance}
+        label="Appearance"
+        triggerIcon={<ThemeIcon aria-hidden="true" />}
+        options={[
+          { value: "system", label: "System theme" },
+          { value: "light", label: "Light theme" },
+          { value: "dark", label: "Dark theme" },
+        ]}
+      />
+    </div>
+  );
   const current = nav.find((item) => item.path === location.pathname);
   const incomplete = workspace ? Object.values(missingSetup(workspace)).some(Boolean) : true;
   return (
@@ -266,20 +298,7 @@ function App() {
             Job Hunter
           </Link>
           {navigation}
-          <div className="sidebar-bottom">
-            <div className="appearance">
-              <Choice
-                value={theme}
-                onChange={appearance}
-                label="Appearance"
-                options={[
-                  { value: "system", label: "System theme" },
-                  { value: "light", label: "Light theme" },
-                  { value: "dark", label: "Dark theme" },
-                ]}
-              />
-            </div>
-          </div>
+          <div className="sidebar-bottom">{utilityControls}</div>
         </aside>
         <div className="main-column">
           <header className="topbar">
@@ -411,18 +430,54 @@ function App() {
       />
       <Modal open={mobileMenu} onClose={() => setMobileMenu(false)} title="Job Hunter" drawer>
         {navigation}
-        <div className="mobile-appearance">
-          <Choice
-            value={theme}
-            onChange={appearance}
-            label="Appearance"
-            options={[
-              { value: "system", label: "System theme" },
-              { value: "light", label: "Light theme" },
-              { value: "dark", label: "Dark theme" },
-            ]}
-          />
-        </div>
+        <div className="mobile-appearance">{utilityControls}</div>
+      </Modal>
+      <Modal
+        open={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        title="About Job Hunter"
+        returnFocus={() => aboutTrigger.current?.focus()}
+      >
+        <ol className="about-content">
+          <li>
+            <h3>Purpose</h3>
+            <p>Find job opportunities relevant to your resume.</p>
+          </li>
+          <li>
+            <h3>How it works</h3>
+            <p>
+              Choose your target roles, country and work type. SerpApi finds postings, then AI
+              assesses them against your resume. Confirmed matches appear in Jobs.
+            </p>
+          </li>
+          <li>
+            <h3>Our approach</h3>
+            <p>
+              We prioritize strict relevance. A fit score is an assessment of alignment, not your
+              probability of being hired. Check each posting before applying.
+            </p>
+          </li>
+          <li>
+            <h3>Your workflow</h3>
+            <p>
+              Jobs stay visible for 24 hours. When you apply, update the job's status to track it in
+              Applications, where your application and notes remain.
+            </p>
+          </li>
+          <li>
+            <h3>Data and costs</h3>
+            <p>
+              Your resume, jobs and settings are stored locally. Search queries go to SerpApi.
+              Extracted resume text and job descriptions go through OpenRouter to your selected
+              model provider.
+            </p>
+            <p>
+              One search can use multiple SerpApi requests. AI assessments also use provider
+              credits. Your connected providers' limits and charges apply; the quota card estimates
+              how many searches remain.
+            </p>
+          </li>
+        </ol>
       </Modal>
       {workspace && (
         <Modal

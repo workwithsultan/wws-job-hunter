@@ -22,6 +22,7 @@ API calls consume your own provider credits. An unconfigured installation makes 
 - **Applications:** follow Applied, Interviewed, Offered, Accepted, Rejected, and Withdrawn stages.
 - **Search logs:** review search executions in a table with status, time, duration, result counts, and full progress or error messages.
 - **Settings:** **Search setup** contains your resume PDF, roles, exclusions, country and work type; **Connections** contains provider keys and the AI model. Assessment instructions and system context are internal and have no visible menu or editor. The former `/search` URL redirects to Settings.
+- **About and appearance:** About opens a plain-language explanation of the app’s purpose, search flow, strict matching, 24-hour Jobs window, application tracking, local storage and provider usage/costs. The adjacent icon opens System, Light and Dark theme choices. Both controls are available in the sidebar and mobile navigation.
 
 Save buttons remain disabled until the form has valid changes. Reverting edits disables them again. Saving forms, changing models, adding keywords or keys, and deleting saved items require confirmation. Cancel and Escape preserve the current draft without saving it. Searches wait until pending edits and operations finish. Resume and search settings save separately so one form cannot overwrite the other. Provider Connect buttons require valid input; appearance changes apply immediately.
 

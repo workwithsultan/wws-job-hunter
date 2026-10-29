@@ -286,6 +286,7 @@ export function Field({
   );
 }
 interface ChoiceProps extends ControlProps {
+  triggerIcon?: ReactNode;
   value: string;
   onChange: (value: string) => void;
   options: { value: string; label: string; emoji?: string }[];
@@ -294,6 +295,7 @@ interface ChoiceProps extends ControlProps {
   placeholder?: string;
 }
 export function Choice({
+  triggerIcon,
   value,
   onChange,
   options,
@@ -351,7 +353,8 @@ export function Choice({
         type="button"
         {...attributes}
         disabled={disabled}
-        className="choice-trigger"
+        className={triggerIcon ? "icon-button ghost" : "choice-trigger"}
+        title={triggerIcon ? selectedText : undefined}
         aria-label={label}
         aria-haspopup="listbox"
         onKeyDown={(event) => {
@@ -364,14 +367,16 @@ export function Choice({
         aria-describedby={[attributes["aria-describedby"], selectedId].filter(Boolean).join(" ")}
         data-empty={!value}
       >
-        <span className="choice-value">
-          {selected?.emoji && <Emoji>{selected.emoji}</Emoji>}
-          <span>{selectedText}</span>
-        </span>
+        {triggerIcon ?? (
+          <span className="choice-value">
+            {selected?.emoji && <Emoji>{selected.emoji}</Emoji>}
+            <span>{selectedText}</span>
+          </span>
+        )}
         <span id={selectedId} className="sr-only">
           Current value: {selectedText}
         </span>
-        <ChevronDown />
+        {!triggerIcon && <ChevronDown />}
       </Popover.Trigger>
       <Popover.Portal {...(container ? { container } : {})}>
         <Popover.Content
