@@ -429,8 +429,19 @@ main {
   border-bottom: 1px solid var(--border);
 }
 .stat {
+  --stat-color: var(--selected-fg);
   min-width: 0;
-  padding: 0.5rem 0;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--stat-color) 25%, var(--border));
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--stat-color) 7%, var(--card));
+  color: var(--stat-color);
+}
+.stat-interviews {
+  --stat-color: var(--warning);
+}
+.stat-offers {
+  --stat-color: var(--success);
 }
 .stat-top {
   display: flex;
@@ -439,10 +450,7 @@ main {
   gap: 0.5rem;
   font-size: 0.875rem;
   line-height: 1.25rem;
-  color: var(--muted);
-}
-.stat-top svg {
-  color: var(--muted);
+  color: inherit;
 }
 .stat strong {
   display: block;
@@ -998,7 +1006,7 @@ details summary {
     gap: 0.5rem;
   }
   .stat {
-    padding: 0.5rem 0;
+    padding: 0.75rem;
     min-width: 0;
   }
   .stat-top {
@@ -1343,7 +1351,7 @@ details summary {
     align-items: start;
   }
   .stat {
-    padding: 0.5rem 0;
+    padding: 0.75rem;
   }
 }
 @media (max-width: 639px) {
@@ -1517,10 +1525,6 @@ h2 {
   gap: 1rem;
   min-width: 0;
 }
-.jobs-layout .stats {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding-block-end: 1rem;
-}
 .job-quota {
   display: grid;
   align-content: start;
@@ -1630,14 +1634,9 @@ h2 {
 @media (min-width: 1280px) {
   .jobs-layout {
     grid-template-columns: minmax(0, 1fr) 20rem;
-    grid-template-areas: "stats quota" "results quota";
-    grid-template-rows: auto 1fr;
+    grid-template-areas: "results quota";
     align-items: start;
     column-gap: 1.5rem;
-  }
-  .jobs-layout .stats {
-    grid-area: stats;
-    padding-block-end: 1rem;
   }
   .jobs-layout .collection {
     grid-area: results;

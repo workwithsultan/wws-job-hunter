@@ -31,7 +31,7 @@ import {
   Search as SearchIcon,
   Settings2,
   ScrollText,
-  Sparkles,
+  Handshake,
   Trash2,
 } from "lucide-react";
 import {
@@ -593,16 +593,21 @@ function JobsPage({
     next.delete("job");
     setParams(next, { replace: name === "q" });
   };
-  const stats = applications
-    ? [
-        { label: "Applications", value: workspace.totals.applications, icon: FileText },
-        { label: "Interviewed", value: workspace.totals.interviewing, icon: Clock3 },
-        { label: "Offers", value: workspace.totals.offers, icon: CheckCircle2 },
-      ]
-    : [
-        { label: "Saved jobs", value: workspace.totals.jobs, icon: BriefcaseBusiness },
-        { label: "Matches", value: workspace.totals.matches, icon: Sparkles },
-      ];
+  const stats = [
+    {
+      label: "Applications",
+      value: workspace.totals.applications,
+      icon: FileText,
+      tone: "applications",
+    },
+    {
+      label: "Interviewed",
+      value: workspace.totals.interviewing,
+      icon: Clock3,
+      tone: "interviews",
+    },
+    { label: "Offers", value: workspace.totals.offers, icon: Handshake, tone: "offers" },
+  ];
   const total = applications ? workspace.totals.applications : workspace.totals.jobs;
   const setupIncomplete = Object.values(missingSetup(workspace)).some(Boolean);
   const searchFailed =
@@ -643,17 +648,19 @@ function JobsPage({
 
   return (
     <div className={applications ? "applications-layout" : "jobs-layout"}>
-      <div className="stats">
-        {stats.map(({ label, value, icon: Icon }) => (
-          <div className="stat" key={label}>
-            <div className="stat-top">
-              <span>{label}</span>
-              <Icon aria-hidden="true" />
+      {applications && (
+        <div className="stats">
+          {stats.map(({ label, value, icon: Icon, tone }) => (
+            <div className={"stat stat-" + tone} key={label}>
+              <div className="stat-top">
+                <span>{label}</span>
+                <Icon aria-hidden="true" />
+              </div>
+              <strong>{value.toLocaleString()}</strong>
             </div>
-            <strong>{value.toLocaleString()}</strong>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
       {!applications && <JobQuota workspace={workspace} active={active} />}
       <div className="collection">
         <div className="collection-heading">
