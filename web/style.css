@@ -354,13 +354,18 @@ nav a[aria-current="page"] {
 }
 .utility-controls {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.utility-controls > .icon-button {
+  flex-shrink: 0;
 }
 .about-button {
   display: inline-flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
+  justify-content: flex-start;
   gap: 0.5rem;
 }
 .about-content {
@@ -1118,9 +1123,6 @@ details summary {
   .error-trigger {
     min-width: 2.75rem;
     min-height: 2.75rem;
-  }
-  .appearance .choice-trigger {
-    font-size: 0.875rem;
   }
   .label-row {
     min-height: 2.75rem;
