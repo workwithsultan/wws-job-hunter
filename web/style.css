@@ -301,9 +301,7 @@ fieldset:disabled {
   overflow-y: auto;
 }
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  display: block;
   padding: 0 0.75rem;
   margin-block-end: 2rem;
   color: var(--foreground);
@@ -311,11 +309,6 @@ fieldset:disabled {
   line-height: 1.5rem;
   font-weight: 600;
   text-decoration: none;
-}
-.brand img {
-  flex-shrink: 0;
-  width: 2rem;
-  height: 2rem;
 }
 nav {
   display: grid;
@@ -1183,9 +1176,6 @@ details summary {
 }
 
 .mobile-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
   color: var(--foreground);
   font-weight: 600;
   text-decoration: none;

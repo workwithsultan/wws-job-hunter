@@ -293,7 +293,6 @@ function App() {
       <div className="shell">
         <aside className="sidebar">
           <Link to="/jobs" className="brand">
-            <img src="/wws-job-hunter.svg" alt="" width="32" height="32" />
             WWS Job Hunter
           </Link>
           {navigation}
@@ -311,7 +310,6 @@ function App() {
                 <Menu />
               </button>
               <Link to="/jobs" className="mobile-brand">
-                <img src="/wws-job-hunter.svg" alt="" width="24" height="24" />
                 WWS Job Hunter
               </Link>
             </div>

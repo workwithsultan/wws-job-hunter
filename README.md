@@ -1,7 +1,5 @@
 # WWS Job Hunter
 
-<img src="web/public/wws-job-hunter.svg" width="64" height="64" alt="WWS Job Hunter logo" />
-
 An application for discovering jobs across countries, reviewing job matches, and tracking applications. Each installation belongs to one person. You supply your own provider accounts and keep your own database.
 
 ## Install and run
