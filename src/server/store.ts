@@ -1,3 +1,4 @@
+import { assessmentResponseInstructions } from "../shared/assessment.js";
 import Database from "better-sqlite3";
 import {
   defaultPreferences,
@@ -16,10 +17,15 @@ type InsertJob = Pick<
   Job,
   "title" | "url" | "source" | "snippet" | "description" | "assessment" | "reason" | "status"
 >;
-const previousDefaultAssessmentPrompt = defaultPreferences.assessmentPrompt.replace(
+const previousDefaultWithQueryGuidance = defaultPreferences.assessmentPrompt.replace(
   "Distinguish required qualifications from preferred ones.",
   "Distinguish required qualifications from preferred ones. Title keywords need not match an exact phrase.",
 );
+const previousDefaultAssessmentPrompts = new Set([
+  previousDefaultWithQueryGuidance,
+  defaultPreferences.assessmentPrompt + "\n\n" + assessmentResponseInstructions,
+  previousDefaultWithQueryGuidance + "\n\n" + assessmentResponseInstructions,
+]);
 const opportunityWindowMs = 24 * 60 * 60 * 1000;
 const visibleAssessment = "assessment IN ('match','review')";
 const queueStatus = "status IN ('ready','review')";
@@ -100,7 +106,10 @@ export class Store {
     if (typeof saved !== "object" || saved === null || Array.isArray(saved))
       throw new Error("Saved preferences are invalid.");
     const value: Record<string, unknown> = { ...saved };
-    if (value.assessmentPrompt === previousDefaultAssessmentPrompt)
+    if (
+      typeof value.assessmentPrompt === "string" &&
+      previousDefaultAssessmentPrompts.has(value.assessmentPrompt)
+    )
       value.assessmentPrompt = defaultPreferences.assessmentPrompt;
     if ("limit" in value) delete value.limit;
     if ("threshold" in value) delete value.threshold;

@@ -1,3 +1,4 @@
+import { assessmentResponseInstructions } from "../src/shared/assessment.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -102,6 +103,8 @@ test("assessment requests preserve the selected model, require schema support an
       "score",
       "reason",
     ]);
+    assert.equal(body.response_format.json_schema.schema.properties.reason.maxLength, 80);
+    assert.ok(body.messages[0].content.endsWith(assessmentResponseInstructions));
     assert.deepEqual(JSON.parse(body.messages[1].content), job);
     return Response.json(completion(JSON.stringify(assessment)));
   };
@@ -251,4 +254,29 @@ test("only explicit key-expired responses are presented as expiry, and upstream 
     assert.doesNotMatch(error.message, /expired|private-account-details/);
     return true;
   });
+});
+
+test("system-managed output requirements stay fixed and invalid reason lengths are rejected", async () => {
+  for (const [reason, accepted] of [
+    ["x".repeat(80), true],
+    ["x".repeat(81), false],
+    [Array(12).fill("fit").join(" "), true],
+    [Array(13).fill("fit").join(" "), false],
+  ] as const) {
+    const request: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        messages: { role: string; content: string }[];
+      };
+      assert.ok(body.messages[0]!.content.startsWith("Assess relevant experience."));
+      assert.ok(body.messages[0]!.content.endsWith(assessmentResponseInstructions));
+      return Response.json(completion(JSON.stringify({ ...assessment, reason })));
+    };
+    const result = await new OpenRouterClient("unit-test-key", request).assess(
+      model.id,
+      "Assess relevant experience.",
+      job,
+      new AbortController().signal,
+    );
+    assert.equal(result !== null, accepted);
+  }
 });

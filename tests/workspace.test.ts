@@ -1,3 +1,4 @@
+import { assessmentResponseInstructions } from "../src/shared/assessment.js";
 import { defaultAssessmentPrompt } from "../src/shared/assessment-prompt.js";
 import { Providers } from "../src/server/providers.js";
 import { buildAssessmentPrompt } from "../src/server/assessment-prompt.js";
@@ -1218,6 +1219,8 @@ test("assessment context belongs only to the current user and treats search mark
   });
   assert.ok(!secondPrompt.includes(first.profile));
   assert.doesNotMatch(firstPrompt, /titleKeywords|Automation Specialist|Title keywords/);
+  assert.ok(!defaultAssessmentPrompt.includes("Return raw JSON:"));
+  assert.ok(!defaultAssessmentPrompt.includes(assessmentResponseInstructions));
   assert.equal(
     buildAssessmentPrompt({
       ...first,
@@ -1395,6 +1398,22 @@ test("upgrading the former built-in prompt removes query guidance without changi
       previous + "\nPrioritize workflow experience.",
     );
     custom.close();
+  } finally {
+    item.cleanup();
+  }
+});
+
+test("saved built-in prompts migrate their output instructions out of the editable text", () => {
+  const item = installation();
+  try {
+    item.store.savePreferences({
+      ...defaultPreferences,
+      assessmentPrompt: defaultAssessmentPrompt + "\n\n" + assessmentResponseInstructions,
+    });
+    const migrated = new Store(join(item.directory, "workspace.sqlite"));
+    assert.equal(migrated.preferences().assessmentPrompt, defaultAssessmentPrompt);
+    assert.ok(!migrated.preferences().assessmentPrompt.includes("Return raw JSON:"));
+    migrated.close();
   } finally {
     item.cleanup();
   }

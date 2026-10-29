@@ -1,4 +1,6 @@
 import { z } from "zod";
+export const assessmentResponseInstructions =
+  'Return raw JSON: {"verdict":"match|not_a_match|review","score":0–100 or null,"reason":"brief factual reason"}. Keep reason within 12 words and 80 characters.';
 export const assessmentLabels = {
   match: "Match",
   not_a_match: "Not a match",
@@ -9,7 +11,7 @@ export const assessmentSchema = z
   .object({
     verdict: z.enum(["match", "not_a_match", "review"]),
     score: z.number().int().min(0).max(100).nullable(),
-    reason: z.string().trim().min(1).max(1000),
+    reason: z.string().trim().min(1).max(80),
   })
   .strict();
 export function assessmentLabel(value: Assessment | null): string {

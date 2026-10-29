@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assessmentSchema } from "../shared/assessment.js";
+import { assessmentSchema, assessmentResponseInstructions } from "../shared/assessment.js";
 
 const modelSchema = z.object({
   id: z.string().min(1).max(150),
@@ -138,7 +138,11 @@ export class OpenRouterClient {
       {
         model,
         messages: [
-          { role: "system", content: prompt },
+          {
+            role: "system",
+            content:
+              prompt + "\n\nRequired output (system-managed):\n" + assessmentResponseInstructions,
+          },
           { role: "user", content: JSON.stringify(job) },
         ],
         stream: false,
@@ -162,7 +166,7 @@ export class OpenRouterClient {
       return null;
     try {
       const parsed = assessmentSchema.safeParse(JSON.parse(choice.message.content));
-      return parsed.success ? parsed.data : null;
+      return parsed.success && parsed.data.reason.split(/\s+/u).length <= 12 ? parsed.data : null;
     } catch {
       return null;
     }
