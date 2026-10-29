@@ -1958,37 +1958,40 @@ h2 {
 @media (min-width: 1280px) {
   .search-form > fieldset {
     display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: 2rem;
-    align-items: start;
+    row-gap: 1.25rem;
+    align-items: stretch;
   }
   .search-keywords {
+    grid-template-rows: subgrid;
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 1 / span 3;
     padding: 0;
     margin: 0;
     border: 0;
   }
   .search-keywords .keyword-grid,
   .search-location .keyword-grid {
-    grid-template-columns: minmax(0, 1fr);
+    display: contents;
   }
   .search-location {
+    grid-template-rows: subgrid;
     grid-column: 2;
-    grid-row: 1;
+    grid-row: 1 / span 3;
     padding: 0;
     margin: 0;
     border: 0;
   }
   .search-sources {
     grid-column: 1 / -1;
-    grid-row: 2;
-    margin-block-start: 1.5rem;
+    grid-row: 4;
+    margin-block-start: 0;
   }
   .search-form .form-actions {
     grid-column: 1 / -1;
-    grid-row: 3;
-    margin-block-start: 1.5rem;
+    grid-row: 5;
+    margin-block-start: 0;
   }
 }
 @media (max-width: 767px) {
@@ -2222,4 +2225,24 @@ h2 {
 .prompt-error {
   color: var(--error);
   margin: 0;
+}
+
+.search-form .chip-input {
+  min-height: 2.75rem;
+  padding: 0.25rem 0.5rem;
+  align-items: center;
+}
+.search-form .chip-entry {
+  min-width: 6rem;
+}
+.search-form .chip-add {
+  margin-inline-start: auto;
+}
+.search-form .search-location .choice-trigger {
+  min-height: 2.75rem;
+}
+@media (max-width: 767px) {
+  .search-form .chip-entry {
+    flex-basis: calc(100% - 3.5rem);
+  }
 }

@@ -1,3 +1,4 @@
+import { previousDefaultAssessmentPrompt } from "../shared/assessment-prompt.js";
 import { assessmentResponseInstructions } from "../shared/assessment.js";
 import Database from "better-sqlite3";
 import {
@@ -17,11 +18,13 @@ type InsertJob = Pick<
   Job,
   "title" | "url" | "source" | "snippet" | "description" | "assessment" | "reason" | "status"
 >;
-const previousDefaultWithQueryGuidance = defaultPreferences.assessmentPrompt.replace(
+const previousDefaultWithQueryGuidance = previousDefaultAssessmentPrompt.replace(
   "Distinguish required qualifications from preferred ones.",
   "Distinguish required qualifications from preferred ones. Title keywords need not match an exact phrase.",
 );
 const previousDefaultAssessmentPrompts = new Set([
+  previousDefaultAssessmentPrompt,
+  previousDefaultAssessmentPrompt + "\n\n" + assessmentResponseInstructions,
   previousDefaultWithQueryGuidance,
   defaultPreferences.assessmentPrompt + "\n\n" + assessmentResponseInstructions,
   previousDefaultWithQueryGuidance + "\n\n" + assessmentResponseInstructions,

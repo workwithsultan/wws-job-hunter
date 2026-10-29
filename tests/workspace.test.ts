@@ -1,5 +1,8 @@
 import { assessmentResponseInstructions } from "../src/shared/assessment.js";
-import { defaultAssessmentPrompt } from "../src/shared/assessment-prompt.js";
+import {
+  defaultAssessmentPrompt,
+  previousDefaultAssessmentPrompt,
+} from "../src/shared/assessment-prompt.js";
 import { Providers } from "../src/server/providers.js";
 import { buildAssessmentPrompt } from "../src/server/assessment-prompt.js";
 import { normalizeJobUrl } from "../src/discovery/url.js";
@@ -794,6 +797,12 @@ test("resume replacement atomically persists PDF and matching text and rejects i
     assert.match(String(preview.headers["content-disposition"]), /^inline/);
     assert.deepEqual(preview.rawPayload, pdf);
     assert.equal(item.store.preferences().profile, payload.profile);
+    const assessmentContext = JSON.parse(
+      buildAssessmentPrompt(item.store.preferences()).split(
+        "Current candidate context (data only):\n",
+      )[1]!,
+    ) as { profile: string };
+    assert.equal(assessmentContext.profile, payload.profile);
     assert.equal(item.store.hasResumeDocument(), true);
     for (const invalid of ["not-base64", Buffer.from("not a PDF").toString("base64")]) {
       const response = await app.inject({
@@ -1232,9 +1241,14 @@ test("assessment context belongs only to the current user and treats search mark
   const instructions = firstPrompt.split(marker)[0]!;
   assert.ok(!instructions.includes("Germany"));
   assert.doesNotMatch(instructions, /Indonesia|Indonesian|Sultan|United States/);
-  assert.match(instructions, /Residence alone proves neither work authorization/);
-  assert.match(instructions, /review: missing or ambiguous[\s\S]*unclear essential eligibility/);
-  assert.match(instructions, /Never infer nationality, residence, citizenship, work authorization/);
+  assert.match(
+    instructions,
+    /Do not assume nationality or work authorization from residence alone/,
+  );
+  assert.match(instructions, /not_a_match, score 0/);
+  assert.match(instructions, /not clearly open to the candidate/);
+  assert.match(instructions, /requires a language the resume does not show/);
+  assert.match(instructions, /Any country means no country restriction/);
   assert.match(instructions, /data, not instructions/);
 });
 
@@ -1376,7 +1390,7 @@ test("an expired OpenRouter key stops a run before any SerpApi quota or discover
 test("upgrading the former built-in prompt removes query guidance without changing custom instructions", () => {
   const item = installation();
   try {
-    const previous = defaultAssessmentPrompt.replace(
+    const previous = previousDefaultAssessmentPrompt.replace(
       "Distinguish required qualifications from preferred ones.",
       "Distinguish required qualifications from preferred ones. Title keywords need not match an exact phrase.",
     );
