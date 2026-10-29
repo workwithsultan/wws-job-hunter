@@ -51,7 +51,7 @@ import {
   type Workspace,
 } from "../src/shared/model";
 import { countries } from "../src/shared/countries";
-import { countryName, workTypes } from "../src/shared/search-scope";
+import { countryName, workTypes, searchWindows } from "../src/shared/search-scope";
 import { searchBudget } from "../src/shared/budget";
 import { ResumeImport } from "./resume-import";
 import { ProviderSettings } from "./providers";
@@ -202,6 +202,8 @@ function App() {
             { label: "Job titles", value: workspace.preferences.roles.join(", ") },
             { label: "Country", value: countryName(workspace.preferences.country) },
             { label: "Work type", value: workTypes[workspace.preferences.workType] },
+            { label: "Search window", value: searchWindows[workspace.preferences.searchWindow] },
+            { label: "Search engine", value: "DuckDuckGo via SerpApi" },
             { label: "AI model", value: workspace.connections.model },
           ],
           description: `Estimated usage: ${budget.searchesPerRun} SerpApi requests before retries.${budget.aboveTarget ? ` Your daily target is ${budget.dailyTarget}.` : ""} Your resume text and job descriptions will be sent through OpenRouter to the selected model provider for matching.`,
@@ -469,7 +471,7 @@ function App() {
           <li>
             <h3>How we search</h3>
             <p>
-              Your job titles, country and work type become Google search queries with site filters.
+              Your job titles, country and work type become site-filtered DuckDuckGo queries.
               SerpApi finds results on Greenhouse, Lever, Ashby, Workable and Workday. We read the
               original postings, then AI compares them with your resume. Only confirmed matches
               reach Jobs.
@@ -1282,7 +1284,7 @@ function SearchPage({
       disposed = true;
     };
   }, [active, preferences, workspace.connections.serpapi]);
-  const change = async <K extends "roles" | "exclusions" | "country" | "workType">(
+  const change = async <K extends "roles" | "exclusions" | "country" | "workType" | "searchWindow">(
     key: K,
     value: Preferences[K],
     confirmed = false,
@@ -1305,13 +1307,16 @@ function SearchPage({
       exclusions: "Excluded keywords",
       country: "Country",
       workType: "Work type",
+      searchWindow: "Search window",
     };
     const display =
       key === "country"
         ? countryName(candidate.country)
         : key === "workType"
           ? workTypes[candidate.workType]
-          : (key === "roles" ? candidate.roles : candidate.exclusions).join(", ") || "None";
+          : key === "searchWindow"
+            ? searchWindows[candidate.searchWindow]
+            : (key === "roles" ? candidate.roles : candidate.exclusions).join(", ") || "None";
     saving.current = true;
     try {
       if (
@@ -1413,6 +1418,22 @@ function SearchPage({
                 />
               </Field>
             </div>
+          </section>
+          <section className="search-section">
+            <Field
+              id="search-searchWindow"
+              label="Search window (required)"
+              error={errors.searchWindow}
+            >
+              <Choice
+                value={preferences.searchWindow}
+                onChange={(value) =>
+                  void change("searchWindow", value as Preferences["searchWindow"])
+                }
+                label="Search window"
+                options={Object.entries(searchWindows).map(([value, label]) => ({ value, label }))}
+              />
+            </Field>
           </section>
           <section className="search-section search-sources" aria-labelledby="source-heading">
             <h2 id="source-heading">

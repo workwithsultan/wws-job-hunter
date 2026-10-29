@@ -80,3 +80,26 @@ export function normalizeJobUrl(input: string): string {
     return input.trim();
   }
 }
+
+export function isJobPostingUrl(input: string): boolean {
+  try {
+    const url = new URL(normalizeJobUrl(input));
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== "443")
+    )
+      return false;
+    if (url.hostname === "boards.greenhouse.io")
+      return /^\/[^/]+\/jobs\/\d+\/?$/.test(url.pathname);
+    if (["jobs.lever.co", "jobs.ashbyhq.com"].includes(url.hostname))
+      return /^\/[^/]+\/[^/]+\/?$/.test(url.pathname);
+    if (url.hostname === "apply.workable.com") return /^\/[^/]+\/j\/[^/]+\/?$/.test(url.pathname);
+    if (url.hostname.endsWith(".myworkdayjobs.com") || url.hostname === "myworkdayjobs.com")
+      return /\/job\/[^/]+/.test(url.pathname);
+    return false;
+  } catch {
+    return false;
+  }
+}

@@ -2,7 +2,12 @@ import { defaultAssessmentPrompt, assessmentPromptSchema } from "./assessment-pr
 import type { Assessment } from "./assessment.js";
 import { z } from "zod";
 import { resumeMetadataSchema } from "./resume.js";
-import { countrySchema, workTypeSchema, defaultSearchScope } from "./search-scope.js";
+import {
+  countrySchema,
+  workTypeSchema,
+  defaultSearchScope,
+  searchWindowSchema,
+} from "./search-scope.js";
 export const statusLabels = {
   new: "New",
   ready: "Need to apply",
@@ -62,6 +67,7 @@ export const preferencesSchema = z
   .object({
     country: countrySchema,
     workType: workTypeSchema,
+    searchWindow: searchWindowSchema.default("any"),
     profile: z.string().max(12000),
     resume: resumeMetadataSchema.nullable(),
     roles: terms,
@@ -77,6 +83,7 @@ const { profile: profileField, resume: resumeField } = preferencesSchema.shape;
 const searchFields = {
   country: preferencesSchema.shape.country,
   workType: preferencesSchema.shape.workType,
+  searchWindow: searchWindowSchema,
   roles: preferencesSchema.shape.roles,
   exclusions: preferencesSchema.shape.exclusions,
 };
@@ -97,6 +104,7 @@ export const searchPreferenceKeys = Object.keys(searchFields);
 export type Preferences = z.infer<typeof preferencesSchema>;
 export const defaultPreferences: Preferences = {
   ...defaultSearchScope,
+  searchWindow: "any",
   profile: "",
   resume: null,
   roles: [],

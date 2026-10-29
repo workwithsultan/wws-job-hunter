@@ -349,7 +349,7 @@ export function buildApp(
     return {
       query: buildSearchQueryPreview(
         p.roles,
-        searchBudget(quota, p).limitPerSource,
+        searchBudget(quota, p).queryBreadth,
         sourceDomains,
         p,
       ),

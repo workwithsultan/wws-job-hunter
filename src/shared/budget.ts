@@ -1,27 +1,17 @@
 import { sourceDomains, type Preferences, type SerpQuota } from "./model.js";
-import {
-  buildFirstPageSearchQueries,
-  FIRST_PAGE_SEARCH_DOMAINS,
-} from "../discovery/search-query.js";
+import { buildFirstPageSearchQueries } from "../discovery/search-query.js";
 
 export interface SearchBudget {
   remaining: number | null;
   monthlyLimit: number | null;
   dailyTarget: number | null;
-  limitPerSource: number;
+  queryBreadth: number;
   searchesPerRun: number | null;
   aboveTarget: boolean;
 }
 export function estimateSearches(preferences: Preferences, limit: number): number | null {
   if (!preferences.roles.length) return null;
-  return sourceDomains.reduce(
-    (sum, domain) =>
-      sum +
-      (FIRST_PAGE_SEARCH_DOMAINS.includes(domain)
-        ? buildFirstPageSearchQueries(preferences.roles, limit).length
-        : Math.ceil(limit / 10)),
-    0,
-  );
+  return sourceDomains.length * buildFirstPageSearchQueries(preferences.roles, limit).length;
 }
 export function remainingDays(renewal: string, timezone: string, now = new Date()): number {
   const parts = new Intl.DateTimeFormat("en", {
@@ -56,7 +46,7 @@ export function searchBudget(
       remaining: null,
       monthlyLimit: null,
       dailyTarget: null,
-      limitPerSource: 10,
+      queryBreadth: 10,
       searchesPerRun: estimateSearches(preferences, 10),
       aboveTarget: false,
     };
@@ -78,7 +68,7 @@ export function searchBudget(
     remaining,
     monthlyLimit,
     dailyTarget,
-    limitPerSource: limit,
+    queryBreadth: limit,
     searchesPerRun: estimateSearches(preferences, limit),
     aboveTarget: dailyTarget !== null && (estimateSearches(preferences, limit) ?? 0) > dailyTarget,
   };

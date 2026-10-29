@@ -9,7 +9,7 @@ import { normalizeJobUrl } from "../discovery/url.js";
 import { sourceDomains, type Preferences } from "../shared/model.js";
 import { Configuration } from "./config.js";
 import { Store } from "./store.js";
-import { extractDescription, isJobUrl } from "./extract.js";
+import { extractPosting, isJobUrl, PostingUnavailableError } from "./extract.js";
 
 export class Runner {
   running = false;
@@ -85,61 +85,107 @@ export class Runner {
       this.store.progress(id, counts, "Discovering jobs…");
       const discovered = await discoverJobs(
         keys.join(","),
-        budget.limitPerSource,
+        budget.queryBreadth,
         preferences.roles,
         sourceDomains,
         signal,
         preferences,
       );
       counts.found = discovered.length;
+      let titleMatches = 0;
+      let seen = 0;
+      let excludedCount = 0;
+      let assessed = 0;
+      let rejected = 0;
+      let unavailable = 0;
       for (const candidate of discovered) {
         signal.throwIfAborted();
         const url = normalizeJobUrl(candidate.link);
         if (!isJobUrl(url)) throw new Error("The provider returned an unsupported job URL.");
-        if (this.store.has(url)) continue;
+        if (this.store.has(url)) {
+          seen++;
+          continue;
+        }
         const source = sourceDomains.find(
           (host) => new URL(url).hostname === host || new URL(url).hostname.endsWith("." + host),
         );
         if (!source) throw new Error("The job source is not supported.");
-        const excluded = preferences.exclusions.some((term) => matchesTitle(candidate.title, term));
-        const matched = preferences.roles.some((term) => matchesTitle(candidate.title, term));
-        if (!matched) continue;
         this.store.insert({
           title: candidate.title,
           url,
           source,
           snippet: candidate.snippet,
           description: "",
-          assessment: excluded ? "not_a_match" : null,
-          reason: excluded ? "Matched an excluded title keyword." : "",
-          status: excluded ? "not_a_fit" : "new",
+          assessment: null,
+          reason: "",
+          status: "new",
         });
       }
       stage = "assessment";
       this.store.progress(id, counts, "Reading and assessing job descriptions…");
       const client = new OpenRouterClient(credentials.OPENROUTER_API_KEY!);
       const prompt = buildAssessmentPrompt(preferences);
-      for (const job of this.store.pending()) {
+      const pending = this.store.pending();
+      for (const [index, job] of pending.entries()) {
         signal.throwIfAborted();
-        this.store.progress(id, counts, "Reading and assessing job descriptions…");
+        this.store.progress(
+          id,
+          counts,
+          `Reading and assessing job descriptions… ${index + 1} of ${pending.length}.`,
+        );
         let description: string;
+        let details: Record<string, unknown>;
+        let title = job.title;
         try {
-          description = await extractDescription(job.url, signal);
-        } catch {
+          const posting = await extractPosting(job.url, signal);
+          description = posting.description;
+          details = posting.details;
+          title = posting.title || job.title;
+          this.store.setPosting(job.id, title, description);
+        } catch (error) {
           signal.throwIfAborted();
-          unassessed++;
+          if (error instanceof PostingUnavailableError) {
+            this.store.assess(job.id, {
+              description: "",
+              assessment: "not_a_match",
+              score: 0,
+              reason: error.message,
+              status: "not_a_fit",
+            });
+            unavailable++;
+          } else {
+            unassessed++;
+          }
           continue;
         }
+        const matched = preferences.roles.some((term) => matchesTitle(title, term));
+        const excluded = preferences.exclusions.some((term) => matchesTitle(title, term));
+        if (!matched || excluded) {
+          if (excluded) excludedCount++;
+          this.store.assess(job.id, {
+            description,
+            assessment: "not_a_match",
+            score: 0,
+            reason: excluded
+              ? "Matched an excluded title keyword."
+              : "Did not match selected title keywords.",
+            status: "not_a_fit",
+          });
+          continue;
+        }
+        titleMatches++;
         const result = await client.assess(
           credentials.OPENROUTER_MODEL!,
           prompt,
-          { title: job.title, url: job.url, description },
+          { title, url: job.url, description, details },
           signal,
         );
         if (!result) {
           unassessed++;
           continue;
         }
+        assessed++;
+        if (result.verdict === "not_a_match") rejected++;
         const changed = this.store.assess(job.id, {
           description,
           assessment: result.verdict,
@@ -153,9 +199,12 @@ export class Runner {
         }
       }
       signal.throwIfAborted();
-      const message = unassessed
-        ? `${unassessed} postings could not be assessed. Only confirmed matches are shown. Unassessed postings remain pending for a retry.`
-        : "Search complete.";
+      const summary = `${counts.found} ATS postings found; ${titleMatches} passed title filters; ${excludedCount} excluded; ${seen} previously discovered; ${unavailable} unavailable; ${assessed} assessed; ${rejected} not a match; ${counts.matches} new ${counts.matches === 1 ? "match" : "matches"}.`;
+      const message =
+        summary +
+        (unassessed
+          ? ` ${unassessed} postings could not be assessed. Only confirmed matches are shown. Unassessed postings remain pending for a retry.`
+          : "");
       this.store.progress(id, counts, message);
       this.store.finishRun(id, unassessed ? "failed" : "completed", message);
     } catch (error) {

@@ -52,8 +52,8 @@ export function SearchProgress({
               ? run.added
                 ? `${run.added} new ${run.added === 1 ? "opportunity is" : "opportunities are"} ready in Jobs.`
                 : run.found
-                  ? "No new opportunities matched this search. Your saved applications are unchanged."
-                  : "No postings were found with your current filters in the last 24 hours."
+                  ? run.message
+                  : "No postings were returned for your selected search window and filters."
               : run?.message}
         </p>
         {running && (

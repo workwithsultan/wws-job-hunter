@@ -20,6 +20,7 @@ const job = {
   title: "Operations Manager",
   url: "https://jobs.lever.co/example/job",
   description: "Operations experience required.",
+  details: { jobLocationType: "TELECOMMUTE", locations: [{ country: "United States" }] },
 };
 const assessment = { verdict: "match", score: 92, reason: "Relevant job experience." };
 const completion = (

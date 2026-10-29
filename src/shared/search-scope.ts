@@ -14,7 +14,15 @@ export const countrySchema = z
     "Choose a supported country.",
   );
 export const workTypeSchema = z.enum(["any", "remote", "hybrid", "onsite"]);
+export const searchWindows = {
+  any: "Any time",
+  d: "Past 24 hours",
+  w: "Past week",
+  m: "Past month",
+} as const;
+export const searchWindowSchema = z.enum(["any", "d", "w", "m"]);
 export interface SearchScope {
+  searchWindow?: z.infer<typeof searchWindowSchema>;
   country: string;
   workType: z.infer<typeof workTypeSchema>;
 }
@@ -26,6 +34,8 @@ export function countryName(country: string): string {
   return name;
 }
 
-export function searchLocation(scope: SearchScope): Record<string, string> {
-  return scope.country === "any" ? {} : { gl: scope.country, location: countryName(scope.country) };
+export function searchRegion(scope: SearchScope): string | undefined {
+  if (scope.country === "us") return "us-en";
+  if (scope.country === "uk") return "uk-en";
+  return undefined;
 }

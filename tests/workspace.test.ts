@@ -5,7 +5,7 @@ import {
 } from "../src/shared/assessment-prompt.js";
 import { Providers } from "../src/server/providers.js";
 import { buildAssessmentPrompt } from "../src/shared/assessment-context.js";
-import { normalizeJobUrl } from "../src/discovery/url.js";
+import { normalizeJobUrl, isJobPostingUrl } from "../src/discovery/url.js";
 import { runDuration } from "../web/log-format.js";
 import { countryEmoji } from "../src/shared/emoji.js";
 import {
@@ -35,8 +35,7 @@ import { Runner } from "../src/server/runner.js";
 import { buildApp } from "../src/server/app.js";
 import { sourceDomains, defaultPreferences, preferencesSchema } from "../src/shared/model.js";
 import { discoverJobs, buildQuery, resultMatchesDomain } from "../src/discovery/serpapi.js";
-import { isJobUrl, extractDescription } from "../src/server/extract.js";
-import { searchLocation } from "../src/shared/search-scope.js";
+import { isJobUrl, extractPosting } from "../src/server/extract.js";
 import { keywordEntry } from "../web/form-state.js";
 import { countries } from "../src/shared/countries.js";
 import {
@@ -248,7 +247,7 @@ test("API origin, host, validation and empty-state boundaries", async () => {
 test("shutdown cancellation stops discovery and extraction before any external request", async () => {
   const signal = AbortSignal.abort();
   await assert.rejects(discoverJobs("", 10, [], undefined, signal), { name: "AbortError" });
-  await assert.rejects(extractDescription("https://jobs.lever.co/", signal), {
+  await assert.rejects(extractPosting("https://jobs.lever.co/", signal), {
     name: "AbortError",
   });
 });
@@ -343,7 +342,6 @@ test("country and work type affect discovery queries, provider parameters, and p
   assert.match(query, /Indonesia/);
   assert.match(query, /hybrid/);
   assert.doesNotMatch(query, /remote|United States|USA/);
-  assert.deepEqual(searchLocation(scope), { gl: "id", location: "Indonesia" });
   const preview = buildSearchQueryPreview(["Operations"], 20, sourceDomains, scope);
   assert.match(preview, /Indonesia/);
   assert.doesNotMatch(preview, /remote|United States/);
@@ -351,7 +349,6 @@ test("country and work type affect discovery queries, provider parameters, and p
     assert.match(body, /hybrid[\s\S]*Indonesia/);
   const unrestricted = buildSearchQueryBody(["Operations"], { country: "any", workType: "any" });
   assert.equal(unrestricted, "(Operations)");
-  assert.deepEqual(searchLocation({ country: "any", workType: "any" }), {});
   assert.match(
     buildSearchQueryBody(["Operations"], { country: "sg", workType: "onsite" }),
     /on-site[\s\S]*Singapore/,
@@ -391,6 +388,7 @@ test("individual search-setting saves preserve the other settings and reject inv
   let expected = item.store.preferences();
   try {
     for (const payload of [
+      { searchWindow: "w" },
       { country: "any" },
       { workType: "hybrid" },
       { roles: ["Operations"] },
@@ -1019,7 +1017,7 @@ test("Greenhouse discovery, URL identity and extraction accept both official hos
   );
   assert.match(
     buildQuery("boards.greenhouse.io", '"Automation Specialist"'),
-    /site:boards\.greenhouse\.io OR site:job-boards\.greenhouse\.io/,
+    /site:job-boards\.greenhouse\.io/,
   );
   assert.match(
     buildSearchQueryPreview(["Automation Specialist"], 10, sourceDomains),
@@ -1208,6 +1206,8 @@ test("multi-word title keywords do not require a phrase, order or adjacency", ()
   assert.equal(matchesTitle("Senior Manager of Sales", "Sales Manager"), true);
   assert.equal(matchesTitle("Operations Manager", "Sales Manager"), false);
   assert.equal(matchesTitle("Operations Manager", ""), false);
+  assert.equal(matchesTitle("Paid Training Specialist", "AI"), false);
+  assert.equal(matchesTitle("AI Operations Specialist", "AI"), true);
   assert.equal(
     buildSearchQueryBody(["Automation OR site:example.com"], scope),
     '(Automation "OR" "site:example.com")',
@@ -1538,7 +1538,7 @@ test("legacy review records cannot enter either workspace through lists, details
 
 test("the real runner only publishes confirmed matches and leaves assessment failures hidden for retry", async () => {
   const originalFetch = globalThis.fetch;
-  for (const scenario of ["match", "not_a_match", "review", "unreadable"] as const) {
+  for (const scenario of ["match", "not_a_match", "review", "unreadable", "closed"] as const) {
     const item = installation();
     let runner: Runner | undefined;
     try {
@@ -1577,26 +1577,27 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
           return Response.json({
             search_metadata: { status: "Success" },
             search_information: {
-              total_results: url.searchParams.get("as_sitesearch") === "jobs.lever.co" ? 1 : 0,
+              total_results: url.searchParams.get("q")?.startsWith("site:jobs.lever.co ") ? 1 : 0,
             },
-            organic_results:
-              url.searchParams.get("as_sitesearch") === "jobs.lever.co"
-                ? [
-                    {
-                      title: "Operations Manager",
-                      link: "https://jobs.lever.co/company/operations",
-                      snippet: "Operations experience",
-                    },
-                  ]
-                : [],
+            organic_results: url.searchParams.get("q")?.startsWith("site:jobs.lever.co ")
+              ? [
+                  {
+                    title: "Operations Manager",
+                    link: "https://jobs.lever.co/company/operations",
+                    snippet: "Operations experience",
+                  },
+                ]
+              : [],
           });
         if (url.href === "https://jobs.lever.co/company/operations")
-          return scenario === "unreadable"
-            ? new Response("", { status: 403 })
-            : new Response(
-                "<main>" + "Operations workflow experience required. ".repeat(12) + "</main>",
-                { headers: { "content-type": "text/html" } },
-              );
+          return scenario === "closed"
+            ? new Response("", { status: 404 })
+            : scenario === "unreadable"
+              ? new Response("", { status: 403 })
+              : new Response(
+                  "<main>" + "Operations workflow experience required. ".repeat(12) + "</main>",
+                  { headers: { "content-type": "text/html" } },
+                );
         if (url.href === "https://openrouter.ai/api/v1/chat/completions")
           return Response.json({
             choices: [
@@ -1638,5 +1639,245 @@ test("the real runner only publishes confirmed matches and leaves assessment fai
       globalThis.fetch = originalFetch;
       item.cleanup();
     }
+  }
+});
+
+test("DuckDuckGo discovery uses native filters, skips boards and deduplicates posting aliases", async () => {
+  const original = globalThis.fetch;
+  let requests = 0;
+  try {
+    globalThis.fetch = async (input) => {
+      requests++;
+      const url = new URL(String(input));
+      assert.equal(url.searchParams.get("engine"), "duckduckgo");
+      assert.equal(url.searchParams.get("df"), "w");
+      assert.equal(url.searchParams.get("m"), "35");
+      assert.equal(url.searchParams.has("tbs"), false);
+      assert.equal(url.searchParams.has("as_sitesearch"), false);
+      assert.match(url.searchParams.get("q")!, /^site:jobs.lever.co .*remote.*Indonesia/);
+      return Response.json({
+        search_metadata: { status: "Success" },
+        organic_results: [
+          { title: "Jobs at Company", link: "https://jobs.lever.co/company" },
+          { title: "Automation Specialist", link: "https://jobs.lever.co/company/posting" },
+          {
+            title: "Automation Specialist",
+            link: "https://jobs.lever.co/company/posting/apply?utm_source=test",
+          },
+        ],
+      });
+    };
+    const results = await discoverJobs(
+      "unit-test-key",
+      10,
+      ["Automation"],
+      ["jobs.lever.co"],
+      undefined,
+      { country: "id", workType: "remote", searchWindow: "w" },
+    );
+    assert.equal(requests, 1);
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.link, "https://jobs.lever.co/company/posting");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("only specific ATS posting URLs enter discovery", () => {
+  for (const url of [
+    "https://job-boards.greenhouse.io/company/jobs/123",
+    "https://jobs.lever.co/company/posting/apply",
+    "https://jobs.ashbyhq.com/company/posting/application",
+    "https://apply.workable.com/company/j/ABC123/",
+    "https://company.myworkdayjobs.com/careers/job/remote/Role_R123",
+  ])
+    assert.equal(isJobPostingUrl(url), true, url);
+  for (const url of [
+    "https://job-boards.greenhouse.io/company",
+    "https://jobs.lever.co/company",
+    "https://jobs.ashbyhq.com/company",
+    "https://apply.workable.com/company/",
+    "https://company.myworkdayjobs.com/careers",
+    "https://jobs.lever.co.evil.invalid/company/posting",
+  ])
+    assert.equal(isJobPostingUrl(url), false, url);
+});
+
+test("native discovery batches preserve long terms within the provider query size", () => {
+  const terms = Array.from({ length: 30 }, (_, i) => "Role" + i + " " + "x".repeat(88));
+  const scope = { country: "us", workType: "remote" } as const;
+  const queries = buildFirstPageSearchQueries(terms, 10, scope);
+  for (const term of terms) assert.ok(queries.some((query) => query.includes(term)));
+  for (const query of queries)
+    for (const domain of sourceDomains) assert.ok(buildQuery(domain, query).length <= 500);
+});
+
+test("ATS extraction preserves authoritative titles, eligibility locations and complete Workable requirements", async () => {
+  const original = globalThis.fetch;
+  const body = "Build reliable operations and automation workflows with APIs. ".repeat(8);
+  const requests: string[] = [];
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      requests.push(url.href);
+      if (url.hostname === "boards-api.greenhouse.io")
+        return Response.json({
+          title: "Operations Engineer",
+          content: "<h2>About the role</h2><p>" + body + "</p><p>Own complete delivery.</p>",
+          location: { name: "Worldwide" },
+        });
+      if (url.pathname === "/wday/cxs/company/Careers/job/Remote/Manager_R123")
+        return Response.json({
+          jobPostingInfo: {
+            title: "Technical Project Manager",
+            jobDescription: body,
+            location: "United States",
+            additionalLocations: ["Canada"],
+            timeType: "Full time",
+          },
+        });
+      if (url.pathname === "/api/v2/accounts/company/jobs/ABC123")
+        return Response.json({
+          title: "Automation Specialist",
+          description: body,
+          requirements: "<p>Must have production Python experience.</p>",
+          benefits: "<p>Paid leave.</p>",
+          location: { country: "United States" },
+          locations: [{ country: "United States" }, { country: "Indonesia" }],
+          workplace: "remote",
+        });
+      throw new Error("Unexpected source request");
+    };
+    const greenhouse = await extractPosting("https://job-boards.greenhouse.io/company/jobs/123");
+    assert.equal(greenhouse.title, "Operations Engineer");
+    assert.match(JSON.stringify(greenhouse.details), /Worldwide/);
+    assert.match(greenhouse.description, /About the role\n\nBuild/);
+    assert.match(greenhouse.description, /\n\nOwn complete delivery/);
+    assert.equal(greenhouse.description.includes("Posting details:"), false);
+    const workday = await extractPosting(
+      "https://company.wd1.myworkdayjobs.com/en-US/Careers/job/Remote/Manager_R123",
+    );
+    assert.equal(workday.title, "Technical Project Manager");
+    assert.match(JSON.stringify(workday.details), /United States.*Canada.*Full time/s);
+    const workable = await extractPosting("https://apply.workable.com/company/j/ABC123/");
+    assert.equal(workable.title, "Automation Specialist");
+    assert.match(JSON.stringify(workable.details), /Indonesia/);
+    assert.match(workable.description, /Must have production Python experience/);
+    assert.match(workable.description, /Paid leave/);
+    assert.equal(requests.length, 3);
+    assert.equal(
+      requests.some((url) =>
+        url.includes("boards-api.greenhouse.io/v1/boards/company/jobs/123?content=true"),
+      ),
+      true,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("job metadata supplies eligibility without substituting company descriptions", async () => {
+  const original = globalThis.fetch;
+  const description =
+    "Deliver automation and operations projects across distributed teams. ".repeat(8);
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        `<script type="application/ld+json">${JSON.stringify({
+          "@graph": [
+            { "@type": "Organization", description: "Unrelated organization text. ".repeat(100) },
+            {
+              "@type": "JobPosting",
+              title: "Automation Specialist",
+              description,
+              jobLocationType: "TELECOMMUTE",
+              applicantLocationRequirements: { "@type": "Country", name: "Indonesia" },
+            },
+          ],
+        })}</script><h1>Automation Specialist</h1><main>${description}</main>`,
+      );
+    const posting = await extractPosting("https://jobs.ashbyhq.com/company/posting");
+    assert.equal(posting.title, "Automation Specialist");
+    assert.match(JSON.stringify(posting.details), /Indonesia/);
+    assert.match(JSON.stringify(posting.details), /TELECOMMUTE/);
+    assert.equal(posting.description.includes("Unrelated organization"), false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("independent first-page queries retain every paid result without imposing a ten-posting cutoff", async () => {
+  const original = globalThis.fetch;
+  let requests = 0;
+  try {
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      assert.equal(url.searchParams.get("m"), "35");
+      assert.equal(url.searchParams.get("kl"), "us-en");
+      assert.equal(url.searchParams.has("df"), false);
+      assert.equal(url.searchParams.has("start"), false);
+      requests++;
+      return Response.json({
+        search_metadata: { status: "Success" },
+        organic_results: Array.from({ length: 35 }, (_, index) => ({
+          title: "Operations Specialist",
+          link: `https://jobs.lever.co/company/group${requests}-posting${index}`,
+        })),
+      });
+    };
+    const results = await discoverJobs(
+      "unit-test-key",
+      10,
+      ["Automation", "Operations", "Technical", "AI"],
+      ["jobs.lever.co"],
+      undefined,
+      { country: "us", workType: "remote", searchWindow: "any" },
+    );
+    assert.equal(requests, 2);
+    assert.equal(results.length, 70);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("Workable hidden careers-page locations do not become advertised eligibility restrictions", async () => {
+  const original = globalThis.fetch;
+  const description =
+    "Build internal tools and automation for clients across the United States. ".repeat(8);
+  try {
+    for (const visible of [false, true]) {
+      globalThis.fetch = async () =>
+        Response.json({
+          title: "Technical Product Manager - Global, Remote",
+          state: "published",
+          description,
+          location: { country: "Egypt" },
+          locations: [
+            { country: "Egypt", hidden: true },
+            ...(visible ? [{ country: "United States", hidden: false }] : []),
+          ],
+          workplace: "remote",
+        });
+      const posting = await extractPosting("https://apply.workable.com/company/j/ABC123/");
+      assert.equal(posting.description.includes("Egypt"), false);
+      assert.match(posting.description, /United States/);
+      assert.equal("locations" in posting.details, visible);
+      assert.equal(JSON.stringify(posting.details).includes("Egypt"), false);
+    }
+    globalThis.fetch = async () =>
+      Response.json({
+        description: description + " Applicants must reside in Egypt.",
+        location: { country: "Egypt" },
+        locations: [{ country: "Egypt", hidden: true }],
+      });
+    const restricted = await extractPosting("https://apply.workable.com/company/j/ABC123/");
+    assert.match(restricted.description, /Applicants must reside in Egypt/);
+    globalThis.fetch = async () => Response.json({ state: "archived", description });
+    await assert.rejects(
+      extractPosting("https://apply.workable.com/company/j/ABC123/"),
+      /no longer available/,
+    );
+  } finally {
+    globalThis.fetch = original;
   }
 });

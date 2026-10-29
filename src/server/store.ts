@@ -274,6 +274,11 @@ export class Store {
   pending(): Job[] {
     return this.db.prepare("SELECT * FROM jobs WHERE status='new' ORDER BY id").all() as Job[];
   }
+  setPosting(id: number, title: string, description: string): void {
+    this.db
+      .prepare("UPDATE jobs SET title=?,description=? WHERE id=? AND status='new'")
+      .run(title, description, id);
+  }
   assess(
     id: number,
     value: Pick<Job, "description" | "assessment" | "score" | "reason" | "status">,

@@ -1,16 +1,10 @@
-import { normalizeJobUrl } from "./url.js";
-import { searchLocation, defaultSearchScope, type SearchScope } from "../shared/search-scope.js";
+import { normalizeJobUrl, isJobPostingUrl } from "./url.js";
+import { defaultSearchScope, searchRegion, type SearchScope } from "../shared/search-scope.js";
 import { setTimeout as delay } from "node:timers/promises";
 import type { JobCandidate } from "./types.js";
 import { ATS_CORE_DISCOVERY_DOMAINS } from "./constants.js";
-import {
-  FIRST_PAGE_SEARCH_DOMAINS,
-  buildFirstPageSearchQueries,
-  buildSearchQueryBody,
-} from "./search-query.js";
+import { buildFirstPageSearchQueries, buildAtsQuery as buildQuery } from "./search-query.js";
 
-const SERPAPI_GOOGLE_DOMAIN = "google.com";
-const SERPAPI_LANGUAGE = "en";
 const SERPAPI_FETCH_ATTEMPTS = 4;
 const SERPAPI_FETCH_TIMEOUT_MS = 60000;
 const SERPAPI_RETRY_BASE_DELAY_MS = 5000;
@@ -25,32 +19,6 @@ interface SerpApiResponse {
     snippet?: string;
   }>;
 }
-
-interface DomainQueryProfile {
-  site?: string;
-  pathHint?: string;
-  siteSearch?: string;
-}
-
-const DOMAIN_QUERY_PROFILES: Record<string, DomainQueryProfile> = {
-  "boards.greenhouse.io": {
-    site: "(site:boards.greenhouse.io OR site:job-boards.greenhouse.io)",
-  },
-  "jobs.lever.co": {
-    siteSearch: "jobs.lever.co",
-  },
-  "jobs.ashbyhq.com": {
-    siteSearch: "jobs.ashbyhq.com",
-  },
-  "apply.workable.com": {
-    site: "site:apply.workable.com",
-    pathHint: "inurl:/j/",
-  },
-  "myworkdayjobs.com": {
-    site: "site:myworkdayjobs.com",
-    pathHint: "inurl:/job/",
-  },
-};
 
 export class SerpApiQuotaError extends Error {
   constructor(message: string) {
@@ -105,17 +73,7 @@ class SerpApiKeyPool {
   }
 }
 
-export function buildQuery(domain: string, queryBody: string): string {
-  const profile = DOMAIN_QUERY_PROFILES[domain] || {
-    site: `site:${domain}`,
-  };
-
-  return [profile.site, profile.pathHint, queryBody]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+export { buildQuery };
 
 export function resultMatchesDomain(link: string, domain: string): boolean {
   try {
@@ -293,7 +251,7 @@ async function fetchSerpApiPage(args: {
   signal?: AbortSignal | undefined;
 }): Promise<JobCandidate[]> {
   const { keyPool, domain, limit, queryBody, scope, signal } = args;
-  const pageSize = 10;
+  const pageSize = 35;
   const jobs: JobCandidate[] = [];
   const sourceLabel = sourceLabelForDomain(domain);
 
@@ -302,19 +260,15 @@ async function fetchSerpApiPage(args: {
     let payload: SerpApiResponse | null = null;
     for (let attempt = 1; attempt <= keyPool.totalKeys(); attempt += 1) {
       const params = new URLSearchParams({
-        engine: "google",
+        engine: "duckduckgo",
         api_key: keyPool.currentKey(),
         q: buildQuery(domain, queryBody),
-        google_domain: SERPAPI_GOOGLE_DOMAIN,
-        hl: SERPAPI_LANGUAGE,
-        ...searchLocation(scope),
-        num: String(Math.min(pageSize, limit - start)),
-        tbs: "qdr:d",
+        m: String(Math.min(pageSize, limit - start)),
       });
-      // SerpApi documents irrelevant results triggered by explicitly sending start=0.
+      const region = searchRegion(scope);
+      if (region) params.set("kl", region);
+      if (scope.searchWindow && scope.searchWindow !== "any") params.set("df", scope.searchWindow);
       if (start > 0) params.set("start", String(start));
-      const siteSearch = DOMAIN_QUERY_PROFILES[domain]?.siteSearch;
-      if (siteSearch) params.set("as_sitesearch", siteSearch);
 
       const response = await fetchSerpApiResponse(
         new URL(`https://serpapi.com/search.json?${params.toString()}`),
@@ -367,7 +321,9 @@ async function fetchSerpApiPage(args: {
     const organicResults = payload.organic_results ?? [];
     const pageJobs = organicResults
       .filter((result) => result.title && result.link)
-      .filter((result) => resultMatchesDomain(result.link!, domain))
+      .filter(
+        (result) => resultMatchesDomain(result.link!, domain) && isJobPostingUrl(result.link!),
+      )
       .map((result) => ({
         title: result.title!.trim(),
         link: result.link!.trim(),
@@ -387,7 +343,7 @@ async function fetchSerpApiPage(args: {
 
 export async function discoverJobs(
   apiKey: string,
-  limitPerSource: number,
+  queryBreadth: number,
   discoveryTitleTerms: readonly string[],
   domains: readonly string[] = ATS_CORE_DISCOVERY_DOMAINS,
   signal?: AbortSignal,
@@ -400,33 +356,23 @@ export async function discoverJobs(
   for (const domain of domains) {
     signal?.throwIfAborted();
     try {
-      if (FIRST_PAGE_SEARCH_DOMAINS.includes(domain)) {
-        const queries = buildFirstPageSearchQueries(discoveryTitleTerms, limitPerSource, scope);
-        const jobs = new Map<string, JobCandidate>();
-        for (const queryBody of queries) {
-          const page = await fetchSerpApiPage({
-            keyPool,
-            domain,
-            limit: Math.min(10, limitPerSource),
-            queryBody,
-            scope,
-            signal,
-          });
-          for (const job of page) jobs.set(job.link, job);
+      const queries = buildFirstPageSearchQueries(discoveryTitleTerms, queryBreadth, scope);
+      const jobs = new Map<string, JobCandidate>();
+      for (const queryBody of queries) {
+        const page = await fetchSerpApiPage({
+          keyPool,
+          domain,
+          limit: 35,
+          queryBody,
+          scope,
+          signal,
+        });
+        for (const job of page) {
+          const link = normalizeJobUrl(job.link);
+          jobs.set(link, { ...job, link });
         }
-        allResults.push(Array.from(jobs.values()).slice(0, limitPerSource));
-      } else {
-        allResults.push(
-          await fetchSerpApiPage({
-            keyPool,
-            domain,
-            limit: limitPerSource,
-            queryBody: buildSearchQueryBody(discoveryTitleTerms, scope),
-            scope,
-            signal,
-          }),
-        );
       }
+      allResults.push(Array.from(jobs.values()));
     } catch (error) {
       if (signal?.aborted) throw error;
       if (isSerpApiQuotaError(error)) throw error;

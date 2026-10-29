@@ -130,7 +130,7 @@ export class OpenRouterClient {
   async assess(
     model: string,
     prompt: string,
-    job: { title: string; url: string; description: string },
+    job: { title: string; url: string; description: string; details?: Record<string, unknown> },
     signal: AbortSignal,
   ): Promise<z.infer<typeof assessmentSchema> | null> {
     const value = await this.json(

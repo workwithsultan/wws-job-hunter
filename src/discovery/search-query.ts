@@ -1,4 +1,10 @@
-import { countryName, defaultSearchScope, type SearchScope } from "../shared/search-scope.js";
+import {
+  countryName,
+  defaultSearchScope,
+  searchWindows,
+  searchRegion,
+  type SearchScope,
+} from "../shared/search-scope.js";
 
 function locationClauses(scope: SearchScope): string[] {
   const clauses: string[] = [];
@@ -6,9 +12,7 @@ function locationClauses(scope: SearchScope): string[] {
   if (scope.workType === "hybrid") clauses.push("hybrid");
   if (scope.workType === "onsite")
     clauses.push('("on-site" OR onsite OR "on site" OR "in-office")');
-  if (scope.country === "us") clauses.push('("United States" OR USA OR "U.S" OR "US")');
-  else if (scope.country === "uk") clauses.push('("United Kingdom" OR UK OR Britain)');
-  else if (scope.country !== "any") clauses.push(JSON.stringify(countryName(scope.country)));
+  if (scope.country !== "any" && !searchRegion(scope)) clauses.push(countryName(scope.country));
   return clauses;
 }
 
@@ -68,57 +72,72 @@ export function buildSearchQueryBody(
   return queryForTerms(compactSearchTerms(discoveryTitleTerms), scope);
 }
 
-export const FIRST_PAGE_SEARCH_DOMAINS: readonly string[] = [
-  "boards.greenhouse.io",
-  "jobs.lever.co",
-  "jobs.ashbyhq.com",
-];
-
 export function buildFirstPageSearchQueries(
   discoveryTitleTerms: readonly string[],
-  limitPerSource: number,
+  queryBreadth: number,
   scope: SearchScope = defaultSearchScope,
 ): string[] {
-  if (!Number.isInteger(limitPerSource) || limitPerSource < 1) {
+  if (!Number.isInteger(queryBreadth) || queryBreadth < 1) {
     throw new Error("The source result limit must be a positive integer.");
   }
   const terms = compactSearchTerms(discoveryTitleTerms);
-  const maxSearches = Math.max(1, Math.ceil(limitPerSource / 10));
-  const batchSize = Math.ceil(terms.length / maxSearches);
+  const maxSearches = Math.max(1, Math.ceil(queryBreadth / 10));
+  const batchSize = Math.min(2, Math.ceil(terms.length / maxSearches));
   const queries: string[] = [];
   // Independent first pages avoid the provider's unreliable pagination without adding searches.
-  for (let index = 0; index < terms.length; index += batchSize) {
-    queries.push(queryForTerms(terms.slice(index, index + batchSize), scope));
+  let batch: string[] = [];
+  for (const term of terms) {
+    if (
+      batch.length &&
+      (batch.length >= batchSize || queryForTerms([...batch, term], scope).length > 400)
+    ) {
+      queries.push(queryForTerms(batch, scope));
+      batch = [];
+    }
+    batch.push(term);
   }
+  if (batch.length) queries.push(queryForTerms(batch, scope));
   return queries;
 }
 
 export function buildSearchQueryPreview(
   discoveryTitleTerms: readonly string[],
-  limitPerSource: number,
+  queryBreadth: number,
   domains: readonly string[],
   scope: SearchScope = defaultSearchScope,
 ): string {
-  const standard = buildSearchQueryBody(discoveryTitleTerms, scope);
-  const firstPageDomains = domains.filter((domain) => FIRST_PAGE_SEARCH_DOMAINS.includes(domain));
-  if (firstPageDomains.length === 0) return standard;
-  const queries = buildFirstPageSearchQueries(discoveryTitleTerms, limitPerSource, scope);
-  const sections = domains.some((domain) => !FIRST_PAGE_SEARCH_DOMAINS.includes(domain))
-    ? [`Standard query:\n${standard}`]
-    : [];
-  sections.push(
-    `Independent first-page searches for ${firstPageDomains.join(", ")}. Each search is restricted to its supported job-site domains.`,
-  );
-  if (firstPageDomains.includes("boards.greenhouse.io"))
-    sections.push("Greenhouse includes boards.greenhouse.io and job-boards.greenhouse.io.");
-  sections.push(
-    ...queries.map((query, index) => `Query ${index + 1}/${queries.length}:\n${query}`),
-  );
-  return sections.join("\n\n");
+  const queries = buildFirstPageSearchQueries(discoveryTitleTerms, queryBreadth, scope);
+  return [
+    "Search engine: DuckDuckGo via SerpApi",
+    "Target market: " + countryName(scope.country),
+    ...(searchRegion(scope) ? ["Search region: " + searchRegion(scope)] : []),
+    "Search window: " + searchWindows[scope.searchWindow ?? "any"],
+    ...domains.flatMap((domain) =>
+      queries.map(
+        (body, index) => domain + " · query " + (index + 1) + ":\n" + buildAtsQuery(domain, body),
+      ),
+    ),
+  ].join("\n\n");
+}
+
+export function buildAtsQuery(domain: string, body: string): string {
+  const site = domain === "boards.greenhouse.io" ? "job-boards.greenhouse.io" : domain;
+  const path =
+    domain === "apply.workable.com"
+      ? "inurl:/j/"
+      : domain === "myworkdayjobs.com"
+        ? "inurl:/job/"
+        : "";
+  return [`site:${site}`, path, body].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 }
 
 export function matchesTitle(title: string, keyword: string): boolean {
   const words = keyword.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  const normalizedTitle = title.toLowerCase();
-  return words.length > 0 && words.every((word) => normalizedTitle.includes(word));
+  return (
+    words.length > 0 &&
+    words.every((word) => {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(title);
+    })
+  );
 }
