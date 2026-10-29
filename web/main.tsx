@@ -482,21 +482,21 @@ function App() {
           </li>
         </ol>
         <p className="about-sources">
-          Learn more:{" "}
+          Community inspiration:{" "}
           <a
-            href="https://www.linkedin.com/help/recruiter/answer/a407387"
+            href="https://www.reddit.com/r/recruitinghell/comments/1e9kg41/skip_linkedin_and_search_jobs_directly_from_ats/"
             target="_blank"
             rel="noreferrer noopener"
           >
-            LinkedIn application flow
-          </a>{" "}
-          ·{" "}
+            Search ATS sites with Google
+          </a>
+          {" · "}
           <a
-            href="https://support.greenhouse.io/hc/en-us/articles/4405801275931-Free-job-posts"
+            href="https://www.reddit.com/r/jobsearchhacks/comments/1dkecdy/another_actual_job_search_hack/"
             target="_blank"
             rel="noreferrer noopener"
           >
-            ATS job distribution
+            Another job search hack
           </a>
         </p>
       </Modal>
