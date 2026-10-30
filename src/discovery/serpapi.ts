@@ -1,5 +1,10 @@
 import { normalizeJobUrl, isJobPostingUrl } from "./url.js";
-import { defaultSearchScope, searchRegion, type SearchScope } from "../shared/search-scope.js";
+import {
+  defaultSearchScope,
+  defaultSearchWindow,
+  searchRegion,
+  type SearchScope,
+} from "../shared/search-scope.js";
 import { setTimeout as delay } from "node:timers/promises";
 import type { JobCandidate } from "./types.js";
 import { ATS_CORE_DISCOVERY_DOMAINS } from "./constants.js";
@@ -267,7 +272,8 @@ async function fetchSerpApiPage(args: {
       });
       const region = searchRegion(scope);
       if (region) params.set("kl", region);
-      if (scope.searchWindow && scope.searchWindow !== "any") params.set("df", scope.searchWindow);
+      const searchWindow = scope.searchWindow ?? defaultSearchWindow;
+      if (searchWindow !== "any") params.set("df", searchWindow);
       if (start > 0) params.set("start", String(start));
 
       const response = await fetchSerpApiResponse(

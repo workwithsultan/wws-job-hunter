@@ -1,6 +1,7 @@
 import {
   countryName,
   defaultSearchScope,
+  defaultSearchWindow,
   searchWindows,
   searchRegion,
   type SearchScope,
@@ -111,7 +112,7 @@ export function buildSearchQueryPreview(
     "Search engine: DuckDuckGo via SerpApi",
     "Target market: " + countryName(scope.country),
     ...(searchRegion(scope) ? ["Search region: " + searchRegion(scope)] : []),
-    "Search window: " + searchWindows[scope.searchWindow ?? "any"],
+    "Search window: " + searchWindows[scope.searchWindow ?? defaultSearchWindow],
     ...domains.flatMap((domain) =>
       queries.map(
         (body, index) => domain + " · query " + (index + 1) + ":\n" + buildAtsQuery(domain, body),

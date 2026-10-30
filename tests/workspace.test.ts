@@ -90,11 +90,12 @@ test("settings persist without generating application records", () => {
   const path = join(directory, "workspace.sqlite");
   try {
     const first = new Store(path);
-    first.savePreferences(defaultPreferences);
+    assert.equal(first.preferences().searchWindow, "d");
+    first.savePreferences({ ...defaultPreferences, searchWindow: "any" });
     first.close();
     const second = new Store(path);
     try {
-      assert.deepEqual(second.preferences(), defaultPreferences);
+      assert.deepEqual(second.preferences(), { ...defaultPreferences, searchWindow: "any" });
       assert.equal(second.totals().jobs, 0);
       assert.equal(second.runs().length, 0);
     } finally {
@@ -426,8 +427,9 @@ test("existing preferences retain US remote behavior when upgraded", () => {
   try {
     const first = new Store(path);
     first.close();
-    const { country, workType, resume, ...previous } = defaultPreferences;
+    const { country, workType, resume, searchWindow, ...previous } = defaultPreferences;
     assert.equal(resume, null);
+    assert.equal(searchWindow, "d");
     assert.equal(country, "us");
     assert.equal(workType, "remote");
     const db = new Database(path);

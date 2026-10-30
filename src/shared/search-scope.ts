@@ -20,13 +20,18 @@ export const searchWindows = {
   w: "Past week",
   m: "Past month",
 } as const;
+export const defaultSearchWindow = "d";
 export const searchWindowSchema = z.enum(["any", "d", "w", "m"]);
 export interface SearchScope {
   searchWindow?: z.infer<typeof searchWindowSchema>;
   country: string;
   workType: z.infer<typeof workTypeSchema>;
 }
-export const defaultSearchScope: SearchScope = { country: "us", workType: "remote" };
+export const defaultSearchScope: SearchScope = {
+  country: "us",
+  workType: "remote",
+  searchWindow: defaultSearchWindow,
+};
 export function countryName(country: string): string {
   if (country === "any") return "Any country";
   const name = countries[country];

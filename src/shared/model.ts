@@ -6,6 +6,7 @@ import {
   countrySchema,
   workTypeSchema,
   defaultSearchScope,
+  defaultSearchWindow,
   searchWindowSchema,
 } from "./search-scope.js";
 export const statusLabels = {
@@ -67,7 +68,7 @@ export const preferencesSchema = z
   .object({
     country: countrySchema,
     workType: workTypeSchema,
-    searchWindow: searchWindowSchema.default("any"),
+    searchWindow: searchWindowSchema.default(defaultSearchWindow),
     profile: z.string().max(12000),
     resume: resumeMetadataSchema.nullable(),
     roles: terms,
@@ -104,7 +105,7 @@ export const searchPreferenceKeys = Object.keys(searchFields);
 export type Preferences = z.infer<typeof preferencesSchema>;
 export const defaultPreferences: Preferences = {
   ...defaultSearchScope,
-  searchWindow: "any",
+  searchWindow: defaultSearchWindow,
   profile: "",
   resume: null,
   roles: [],
